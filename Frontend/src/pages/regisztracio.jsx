@@ -23,9 +23,9 @@ function Registration({ navigateTo }) {
     
     // 1. Adatok összekészítése a Backend számára
     const userData = {
-      nev: `${lastName} ${firstName}`,
+      full_name: `${lastName} ${firstName}`,
       email: email,
-      jelszo: password,
+      password: password,
       fitnessGoal: fitnessGoal
     };
     
@@ -50,8 +50,8 @@ function Registration({ navigateTo }) {
 
       // 3. Válasz ellenőrzése
       if (response.ok) {
-        alert('✅ Sikeres regisztráció! Most már bejelentkezhetsz.');
-        navigateTo('bejelentkezes');
+        alert('✅ Sikeres regisztráció! Kérlek, töltsd ki a kérdőívet a személyre szabott élményhez.');
+        navigateTo('questionnaire');
       } else {
         alert(`❌ Hiba: ${data.error || 'Ismeretlen hiba történt'}`);
       }

@@ -12,7 +12,7 @@ docker.on('close', (code) => {
         console.log('\x1b[32m%s\x1b[0m', '✅ A RENDSZER SIKERESEN ELINDULT DOCKERBEN!');
         console.log('--------------------------------------------------');
         console.log('🌍 \x1b[36mWEBOLDAL (Frontend):\x1b[0m   http://localhost:5173');
-        console.log('⚙️  \x1b[36mBACKEND API:\x1b[0m           http://localhost:5000');
+        console.log('⚙️  \x1b[36mBACKEND API:\x1b[0m           http://localhost:5001');
         console.log('🗄️  \x1b[36mADATBÁZIS (phpMyAdmin):\x1b[0m http://localhost:8081');
         console.log('--------------------------------------------------');
         console.log('\x1b[33m%s\x1b[0m', '🛑 A RENDSZER LEÁLLÍTÁSÁHOZ NYOMJ: CTRL + C');

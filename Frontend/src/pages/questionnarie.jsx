@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './questionnaire.css';
 
-const Questionnaire = ({ navigateTo }) => {
+const Questionnaire = ({ navigateTo, setIsLoggedIn }) => {
   const [currentSection, setCurrentSection] = useState(1);
   const totalSections = 8;
 
@@ -313,6 +313,9 @@ const Questionnaire = ({ navigateTo }) => {
     // Save to localStorage
     localStorage.setItem('powerplan_questionnaire', JSON.stringify(questionnaireData));
     localStorage.setItem('powerplan_user_completed_questionnaire', 'true');
+
+    // Frissítjük az App komponensben a bejelentkezett állapotot
+    if (setIsLoggedIn) setIsLoggedIn(true);
 
     alert('Köszönjük a kérdőív kitöltését! Az adataid alapján személyre szabott edzéstervet készítünk.');
 

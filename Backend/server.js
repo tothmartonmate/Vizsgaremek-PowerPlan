@@ -29,17 +29,18 @@ pool.getConnection()
 
 // REGISZTRÁCIÓ
 app.post('/api/register', async (req, res) => {
-    const { nev, email, jelszo } = req.body;
-    if (!nev || !email || !jelszo) return res.status(400).json({ error: 'Minden mező kötelező!' });
+    const { full_name, email, password, fitnessGoal } = req.body;
+    if (!full_name || !email || !password) return res.status(400).json({ error: 'Minden mező kötelező!' });
 
     try {
         const [existing] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
         if (existing.length > 0) return res.status(409).json({ error: 'Az email már foglalt!' });
 
-        const hashedPassword = await bcrypt.hash(jelszo, 10);
-        const [result] = await pool.query('INSERT INTO users (nev, email, jelszo) VALUES (?, ?, ?)', [nev, email, hashedPassword]);
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const [result] = await pool.query('INSERT INTO users (full_name, email, password_hash, fitness_goal) VALUES (?, ?, ?, ?)', [full_name, email, hashedPassword, fitnessGoal || null]);
         res.status(201).json({ message: 'Sikeres regisztráció!', userId: result.insertId });
     } catch (error) {
+        console.error('Hiba a regisztráció során:', error);
         res.status(500).json({ error: 'Szerverhiba történt!' });
     }
 });
@@ -52,14 +53,15 @@ app.post('/api/login', async (req, res) => {
         if (users.length === 0) return res.status(401).json({ error: 'Hibás adatok!' });
 
         const user = users[0];
-        const validPassword = await bcrypt.compare(password, user.jelszo); // bcrypt összehasonlítás
+        const validPassword = await bcrypt.compare(password, user.password_hash); // bcrypt összehasonlítás
         if (!validPassword) return res.status(401).json({ error: 'Hibás adatok!' });
 
         res.status(200).json({
             success: true,
-            user: { id: user.id, nev: user.nev, email: user.email }
+            user: { id: user.id, full_name: user.full_name, email: user.email }
         });
     } catch (error) {
+        console.error('Hiba a bejelentkezés során:', error);
         res.status(500).json({ error: 'Szerverhiba!' });
     }
 });

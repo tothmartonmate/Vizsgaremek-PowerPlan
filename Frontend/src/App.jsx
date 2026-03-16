@@ -410,8 +410,9 @@ function App() {
   );
 
   const renderRegisztracioPage = () => <Regisztracio navigateTo={navigateTo} />;
-  const renderBejelentkezesPage = () => <Bejelentkezes navigateTo={navigateTo} />;
+  const renderBejelentkezesPage = () => <Bejelentkezes navigateTo={navigateTo} setIsLoggedIn={setIsLoggedIn} />;
   const renderDashboardPage = () => <Dashboard navigateTo={navigateTo} handleLogout={handleLogout} />;
+  const renderQuestionnairePage = () => <Questionnaire navigateTo={navigateTo} setIsLoggedIn={setIsLoggedIn} />;
 
   return (
     <>
@@ -460,6 +461,8 @@ function App() {
             ? renderBejelentkezesPage()
             : currentPage === 'dashboard'
               ? renderDashboardPage()
+              : currentPage === 'questionnaire'
+                ? renderQuestionnairePage()
               : null
       }
     </>
