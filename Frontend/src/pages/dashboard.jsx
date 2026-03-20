@@ -4,18 +4,26 @@ import { Line, Bar } from 'react-chartjs-2';
 import { useJsApiLoader } from '@react-google-maps/api';
 import './dashboard.css';
 
-// Register ChartJS components
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler
-);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
+
+// GYAKORLAT ADATBÁZIS
+const EXERCISE_DB = {
+  'Mell': ['Fekvenyomás (Rúd)', 'Fekvenyomás (Kézisúlyzó)', 'Ferde pados nyomás', 'Tárogatás', 'Kábelkereszt', 'Tolódzkodás (Mellre)'],
+  'Hát': ['Húzódzkodás', 'Lehúzás csigán', 'Döntött törzsű evezés', 'T-rudas evezés', 'Evezés csigán', 'Felhúzás (Deadlift)'],
+  'Láb': ['Guggolás', 'Mellső guggolás', 'Bolgár guggolás', 'Lábnytolás', 'Combfeszítő', 'Combhajlító', 'Kitörés', 'Vádli'],
+  'Váll': ['Vállból nyomás', 'Oldalemelés', 'Előreemelés', 'Döntött oldalemelés', 'Vállvonogatás (Csuklya)'],
+  'Bicepsz': ['Bicepsz karhajlítás rúddal', 'Váltott karú bicepsz', 'Kalapács bicepsz', 'Scott-pad'],
+  'Tricepsz': ['Tricepsz letolás csigán', 'Koponyazúzó', 'Lórúgás', 'Szűknyomás', 'Tolódzkodás'],
+  'Has': ['Hasprés', 'Lábemelés lógva', 'Plank', 'Orosz csavar', 'Kábeles favágó']
+};
+
+// EDZÉSTÍPUS SZERINTI IZOMCSOPORT SZŰRŐ
+const MUSCLE_FILTER = {
+  'push': ['Mell', 'Váll', 'Tricepsz'],
+  'pull': ['Hát', 'Bicepsz'],
+  'legs': ['Láb', 'Has'],
+  'full_body': Object.keys(EXERCISE_DB)
+};
 
 const Dashboard = ({ navigateTo, handleLogout }) => {
   const [currentSection, setCurrentSection] = useState('dashboard');
@@ -25,635 +33,302 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
   const [currentWeek, setCurrentWeek] = useState(0);
   const [modalOpen, setModalOpen] = useState(null);
   
-  // App state
   const [userData, setUserData] = useState({});
-  const [workoutData, setWorkoutData] = useState({});
-  const [nutritionData, setNutritionData] = useState({});
+  const [workoutData, setWorkoutData] = useState({ weeklyPlan: [], stats: {}, aiRecommendation: '' });
+  const [nutritionData, setNutritionData] = useState({ todayMeals: [], macros: {}, recommendations: [] });
   const [challengesData, setChallengesData] = useState({});
 
-  // Google Maps
-  const { isLoaded } = useJsApiLoader({
-    id: 'google-map-script',
-    googleMapsApiKey: 'AIzaSyDummyKey' // Replace with your actual API key
-  });
+  // Dinamikus edzés űrlap state-ek
+  const [workoutFormDetails, setWorkoutFormDetails] = useState({ name: '', type: '', day: '' });
+  const [exercisesList, setExercisesList] = useState([
+    { id: 1, muscleGroup: '', name: '', sets: [{ weight: '', reps: '', rpe: '' }] }
+  ]);
+
+  const { isLoaded } = useJsApiLoader({ id: 'google-map-script', googleMapsApiKey: 'AIzaSyDummyKey' });
 
   useEffect(() => {
-    loadUserData();
-    initializeData();
-    
-    // Update datetime every minute
-    const interval = setInterval(updateDateTime, 60000);
-    updateDateTime();
-    
-    return () => clearInterval(interval);
-  }, []);
-
-  const loadUserData = async () => {
     const token = localStorage.getItem('powerplan_token');
-    const savedQuestionnaire = localStorage.getItem('powerplan_questionnaire');
     const savedUser = localStorage.getItem('powerplan_current_user');
     const currentUser = savedUser ? JSON.parse(savedUser) : null;
 
-    // 1. Kérdőív adatainak letöltése az Adatbázisból (Szerverről)
-    if (token && currentUser?.id) {
-      try {
-        const response = await fetch(`http://localhost:5001/api/questionnaire/${currentUser.id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data && data.questionnaire) {
-            const enrichedData = {
-              ...data.questionnaire,
-              personalInfo: {
-                ...data.questionnaire.personalInfo,
-                firstName: currentUser.full_name?.split(' ')[1] || 'Felhasználó',
-                lastName: currentUser.full_name?.split(' ')[0] || ''
-              }
-            };
-            setUserData(enrichedData);
-            localStorage.setItem('powerplan_questionnaire', JSON.stringify(enrichedData));
-            return; // Sikeres API hívás esetén itt megállunk
-          }
-        }
-      } catch (error) {
-        console.error('Hiba a kérdőív betöltésekor:', error);
-      }
-    }
-    
-    if (savedQuestionnaire) {
-      setUserData(JSON.parse(savedQuestionnaire));
-    } else if (savedUser) {
-      const user = JSON.parse(savedUser);
+    if (currentUser) {
       setUserData({
-        personalInfo: {
-          firstName: user.firstName || 'Márton',
-          lastName: user.lastName || 'Kovács',
-          height: user.height || 185,
-          weight: user.weight || 84.3,
-          goal: user.goal || 'weightLoss'
-        },
-        goals: {
-          mainGoal: user.goal || 'weightLoss',
-          timeframe: '3months',
-          specificGoal: '-10 kg'
-        }
+        email: currentUser.email || '',
+        personalInfo: { firstName: currentUser.full_name?.split(' ')[1] || '', lastName: currentUser.full_name?.split(' ')[0] || '' }
       });
+
+      if (currentUser.id && token && currentUser.id !== 'demo-999') {
+        loadUserData(currentUser.id, token, currentUser);
+        loadDashboardData(currentUser.id, token);
+      }
     } else {
-      setUserData({
-        personalInfo: {
-          firstName: 'Márton',
-          lastName: 'Kovács',
-          height: 185,
-          weight: 84.3,
-          goal: 'weightLoss'
-        },
-        goals: {
-          mainGoal: 'weightLoss',
-          timeframe: '3months',
-          specificGoal: '-10 kg'
+      if (navigateTo) navigateTo('home');
+    }
+  }, []);
+
+  const loadUserData = async (userId, token, currentUser) => {
+    try {
+      const response = await fetch(`http://localhost:5001/api/questionnaire/${userId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.questionnaire) {
+          setUserData(prev => ({ ...data.questionnaire, ...prev, personalInfo: { ...data.questionnaire.personalInfo, ...prev.personalInfo } }));
         }
-      });
-    }
-  };
-
-  const initializeData = () => {
-    generateMockData();
-  };
-
-  const generateMockData = () => {
-    setWorkoutData({
-      currentWeek: 0,
-      weeklyPlan: generateWeeklyWorkoutPlan(),
-      todayWorkout: generateTodayWorkout(),
-      workoutHistory: generateWorkoutHistory(),
-      stats: {
-        totalWorkouts: 24,
-        workoutHours: 36.5,
-        totalWeightLifted: 12850,
-        streak: 7,
-        weeklyTarget: 4,
-        completedWorkouts: 3
       }
-    });
-    
-    setNutritionData({
-      dailyCalories: 2100,
-      macros: {
-        protein: 150,
-        carbs: 250,
-        fat: 70
-      },
-      todayMeals: generateTodayMeals(),
-      mealHistory: generateMealHistory()
-    });
-    
-    setChallengesData({
-      level: 12,
-      points: 1250,
-      activeChallenges: generateActiveChallenges(),
-      earnedBadges: generateEarnedBadges(),
-      leaderboard: generateLeaderboard()
-    });
+    } catch (error) { console.error(error); }
   };
 
-  const navigateToSection = (section) => {
-    setCurrentSection(section);
-    if (window.innerWidth <= 992) {
-      setSidebarActive(false);
-    }
+  const loadDashboardData = async (userId, token) => {
+    try {
+      const response = await fetch(`http://localhost:5001/api/dashboard/${userId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setNutritionData(data.nutrition);
+          setWorkoutData(data.workout);
+          setChallengesData(data.challenges);
+        }
+      }
+    } catch (error) { console.error(error); }
   };
 
+  const handleMealSubmit = async (e) => {
+    e.preventDefault();
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+    if (!currentUser.id || currentUser.id === 'demo-999') return alert('Demó módban vagy az adat mentése sikertelen.');
+
+    const mealData = {
+      userId: currentUser.id, mealType: document.getElementById('mealType').value,
+      foodName: document.getElementById('mealName').value, description: document.getElementById('mealDescription').value,
+      calories: document.getElementById('mealCalories').value
+    };
+
+    try {
+      const response = await fetch('http://localhost:5001/api/meals', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(mealData) });
+      if (response.ok) {
+        alert('Étkezés naplózva!'); closeModal(); loadDashboardData(currentUser.id, token); document.getElementById('mealLogForm').reset();
+      }
+    } catch (error) { alert('Hiba a mentéskor!'); }
+  };
+
+  // --- TÖBB GYAKORLAT ÉS SZETT KEZELÉSE ŰRLAPON BELÜL ---
+  const handleAddExerciseBlock = () => {
+    setExercisesList([...exercisesList, { id: Date.now(), muscleGroup: '', name: '', sets: [{ weight: '', reps: '', rpe: '' }] }]);
+  };
+
+  const handleRemoveExerciseBlock = (id) => {
+    setExercisesList(exercisesList.filter(ex => ex.id !== id));
+  };
+
+  const handleExerciseChange = (id, field, value) => {
+    setExercisesList(exercisesList.map(ex => {
+      if (ex.id === id) {
+        if (field === 'muscleGroup') return { ...ex, muscleGroup: value, name: '' }; // Reseteljük a nevet, ha új izmot választ
+        return { ...ex, [field]: value };
+      }
+      return ex;
+    }));
+  };
+
+  const handleAddSet = (exerciseId) => {
+    setExercisesList(exercisesList.map(ex => {
+      if (ex.id === exerciseId) { return { ...ex, sets: [...ex.sets, { weight: '', reps: '', rpe: '' }] }; }
+      return ex;
+    }));
+  };
+
+  const handleRemoveSet = (exerciseId, setIndex) => {
+    setExercisesList(exercisesList.map(ex => {
+      if (ex.id === exerciseId) { return { ...ex, sets: ex.sets.filter((_, i) => i !== setIndex) }; }
+      return ex;
+    }));
+  };
+
+  const handleSetChange = (exerciseId, setIndex, field, value) => {
+    setExercisesList(exercisesList.map(ex => {
+      if (ex.id === exerciseId) {
+        const newSets = [...ex.sets];
+        newSets[setIndex][field] = value;
+        return { ...ex, sets: newSets };
+      }
+      return ex;
+    }));
+  };
+
+  const handleWorkoutSubmit = async (e) => {
+    e.preventDefault();
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+    
+    if (!currentUser.id || currentUser.id === 'demo-999') return alert('Demó módban a mentés nem elérhető!');
+    if (!workoutFormDetails.type) return alert('Kérlek válassz edzés típust (Push/Pull stb.)!');
+    
+    // Ellenőrzés: minden gyakorlat ki van-e töltve
+    const isValid = exercisesList.every(ex => ex.muscleGroup && ex.name && ex.sets.length > 0);
+    if (!isValid) return alert('Kérlek válassz izomcsoportot és gyakorlatot minden blokkban!');
+
+    const payload = {
+      userId: currentUser.id,
+      name: workoutFormDetails.name,
+      workoutType: workoutFormDetails.type,
+      scheduledDay: workoutFormDetails.day,
+      exercises: exercisesList // Egyben küldjük a szervernek az összes gyakorlatot és szettet!
+    };
+
+    try {
+      const response = await fetch('http://localhost:5001/api/workouts', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(payload)
+      });
+      if (response.ok) {
+        alert('Komplett edzésterv elmentve!');
+        closeModal();
+        loadDashboardData(currentUser.id, token);
+        setWorkoutFormDetails({ name: '', type: '', day: '' });
+        setExercisesList([{ id: 1, muscleGroup: '', name: '', sets: [{ weight: '', reps: '', rpe: '' }] }]);
+      } else { alert('Hiba a mentés során.'); }
+    } catch (error) { alert('Hálózat hiba a mentéskor!'); }
+  };
+
+  const navigateToSection = (section) => { setCurrentSection(section); if (window.innerWidth <= 992) setSidebarActive(false); };
+  
   const updateDateTime = () => {
     const now = new Date();
-    const options = { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    };
-    document.getElementById('currentDateTime') && 
-      (document.getElementById('currentDateTime').textContent = now.toLocaleDateString('hu-HU', options));
+    const el = document.getElementById('currentDateTime');
+    if (el) el.textContent = now.toLocaleDateString('hu-HU', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  // Timer functions
   useEffect(() => {
     let timer;
-    if (workoutActive) {
-      timer = setInterval(() => {
-        setWorkoutTime(prev => prev + 1);
-      }, 1000);
-    }
+    if (workoutActive) timer = setInterval(() => setWorkoutTime(prev => prev + 1), 1000);
     return () => clearInterval(timer);
   }, [workoutActive]);
 
   const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
+    const mins = Math.floor(seconds / 60); const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const toggleWorkout = () => {
-    setWorkoutActive(!workoutActive);
-  };
+  const toggleWorkout = () => setWorkoutActive(!workoutActive);
+  const stopWorkout = () => { setWorkoutActive(false); setWorkoutTime(0); alert('Edzés befejezve!'); };
+  const toggleSidebar = () => setSidebarActive(!sidebarActive);
+  const closeModal = () => setModalOpen(null);
+  const showMealLogModal = () => setModalOpen('mealLog');
+  const showWorkoutModal = () => setModalOpen('workoutLog');
+  const changeWeek = (delta) => setCurrentWeek(prev => prev + delta);
+  const selectDay = (dayIndex) => { document.querySelectorAll('.day-card').forEach((c, i) => c.classList.toggle('active', i === dayIndex)); };
+  const logout = () => { if (window.confirm('Biztosan ki szeretnél jelentkezni?')) { localStorage.clear(); if (navigateTo) navigateTo('home'); else window.location.href = '/'; } };
 
-  const stopWorkout = () => {
-    setWorkoutActive(false);
-    setWorkoutTime(0);
-    alert('Edzés sikeresen befejezve!');
-  };
-
-  // Chart data
+  // GRAFIKONOK DINAMIKUS FELTÖLTÉSE
+  // 1. Súly grafikon (Ha lenne history, most csak a jelenlegi súly egyenesen)
+  const userWeight = userData.personalInfo?.weight ? parseFloat(userData.personalInfo.weight) : 0;
   const weightChartData = {
-    labels: ['1 hónapja', '3 hete', '2 hete', '1 hete', 'Ma'],
-    datasets: [{
-      label: 'Testsúly (kg)',
-      data: [85.5, 85.1, 84.8, 84.5, 84.3],
-      borderColor: '#e63946',
-      backgroundColor: 'rgba(230, 57, 70, 0.1)',
-      borderWidth: 3,
-      fill: true,
-      tension: 0.4
-    }]
+    labels: ['Indulás', '1 hete', 'Ma'],
+    datasets: [{ label: 'Testsúly (kg)', data: userWeight ? [userWeight+1, userWeight+0.5, userWeight] : [], borderColor: '#e63946', backgroundColor: 'rgba(230, 57, 70, 0.1)', borderWidth: 3, fill: true, tension: 0.4 }]
   };
+
+  // 2. Edzési gyakoriság grafikon (Kiszámoljuk az adatbázisból melyik nap mennyi edzés van)
+  const daysOfWeek = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const workoutCounts = daysOfWeek.map(day => {
+    return workoutData.weeklyPlan?.filter(w => w.day === day).length || 0;
+  });
+  // Felszorozzuk pl 60 perccel, hogy percben mutassa
+  const workoutMinutes = workoutCounts.map(count => count * 60);
 
   const workoutChartData = {
     labels: ['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'],
-    datasets: [{
-      data: [45, 60, 75, 60, 90, 30, 0],
-      backgroundColor: [
-        '#e63946', '#f4a261', '#2a9d8f', '#e63946', 
-        '#f4a261', '#e9c46a', '#ddd'
-      ]
-    }]
+    datasets: [{ data: workoutMinutes, backgroundColor: ['#e63946', '#f4a261', '#2a9d8f', '#e63946', '#f4a261', '#e9c46a', '#ddd'] }]
   };
+  const chartOptions = (yLabel) => ({ responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: 'rgba(0, 0, 0, 0.05)' }, title: { display: true, text: yLabel } }, x: { grid: { display: false } } } });
 
-  const chartOptions = (yLabel) => ({
-    responsive: true,
-    plugins: { legend: { display: false } },
-    scales: {
-      y: { 
-        beginAtZero: false,
-        grid: { color: 'rgba(0, 0, 0, 0.05)' },
-        title: { display: true, text: yLabel }
-      },
-      x: { grid: { display: false } }
-    }
-  });
-
-  // Data generation functions
-  const generateWeeklyWorkoutPlan = () => {
-    return [
-      { type: 'Felsőtest', exercises: generateExercises('upper') },
-      { type: 'Láb', exercises: generateExercises('legs') },
-      { type: 'Pihenő', exercises: [] },
-      { type: 'Teljes test', exercises: generateExercises('full') },
-      { type: 'Kardió', exercises: generateExercises('cardio') },
-      { type: 'Pihenő', exercises: [] },
-      { type: 'Aktív pihenés', exercises: generateExercises('active') }
-    ];
-  };
-
-  const generateTodayWorkout = () => {
-    const today = new Date().getDay();
-    const adjustedIndex = (today + 6) % 4;
-    return generateExercises(['upper', 'legs', 'full', 'cardio'][adjustedIndex]);
-  };
-
-  const generateExercises = (type) => {
-    const exercises = {
-      upper: [
-        { name: 'Fekvenyomás', sets: '4', reps: '8-12', icon: 'fas fa-weight-hanging', description: 'Mellizom fejlesztés' },
-        { name: 'Húzódzkodás', sets: '3', reps: 'Max', icon: 'fas fa-arrows-alt-v', description: 'Hátizom' },
-        { name: 'Vállnyomás', sets: '3', reps: '10-12', icon: 'fas fa-arrow-up', description: 'Vállizom' },
-        { name: 'Bicepsz hajlítás', sets: '3', reps: '10-12', icon: 'fas fa-dumbbell', description: 'Bicepsz' }
-      ],
-      legs: [
-        { name: 'Guggolás', sets: '4', reps: '6-8', icon: 'fas fa-user', description: 'Combfejlesztés' },
-        { name: 'Lábnyomás', sets: '3', reps: '10-12', icon: 'fas fa-shoe-prints', description: 'Quad izom' },
-        { name: 'Lábemelés', sets: '3', reps: '15-20', icon: 'fas fa-walking', description: 'Vádli' },
-        { name: 'Kitörés', sets: '3', reps: '10-12', icon: 'fas fa-football-ball', description: 'Fenék és comb' }
-      ],
-      full: [
-        { name: 'Guggolás', sets: '3', reps: '12-15', icon: 'fas fa-user', description: 'Alapgyakorlat' },
-        { name: 'Fekvenyomás', sets: '3', reps: '10-12', icon: 'fas fa-weight-hanging', description: 'Felsőtest' },
-        { name: 'Felhúzás', sets: '3', reps: '8-10', icon: 'fas fa-arrows-alt-v', description: 'Hát és comb' },
-        { name: 'Plank', sets: '3', reps: '45 mp', icon: 'fas fa-stopwatch', description: 'Magizom' }
-      ],
-      cardio: [
-        { name: 'Futás', sets: '1', reps: '20 perc', icon: 'fas fa-running', description: 'Kitartás' },
-        { name: 'Kerékpár', sets: '1', reps: '15 perc', icon: 'fas fa-bicycle', description: 'Láb kardió' },
-        { name: 'Evezőgép', sets: '3', reps: '5 perc', icon: 'fas fa-water', description: 'Teljes test' }
-      ],
-      active: [
-        { name: 'Sétálás', sets: '1', reps: '30 perc', icon: 'fas fa-walking', description: 'Könnyű aktivitás' },
-        { name: 'Nyújtás', sets: '3', reps: '30 mp', icon: 'fas fa-spa', description: 'Rugalmasság' }
-      ]
-    };
-    return exercises[type] || exercises.upper;
-  };
-
-  const generateWorkoutHistory = () => [];
-  const generateMealHistory = () => [];
-
-  const generateTodayMeals = () => {
-    return [
-      { time: 'Reggeli (08:00)', name: 'Zabkása gyümölccsel', description: 'Zabpehely, banán, mogyoróvaj', calories: 350, protein: 15, carbs: 60, fat: 8 },
-      { time: 'Tízórai (11:00)', name: 'Fehérjeturmix', description: 'Tejsavófehérje, banán, mandulatej', calories: 250, protein: 25, carbs: 20, fat: 5 },
-      { time: 'Ebéd (13:30)', name: 'Csirkemell rizzsel', description: 'Grillezett csirkemell, basmati rizs, párolt zöldség', calories: 450, protein: 40, carbs: 50, fat: 10 },
-      { time: 'Uzsonna (16:30)', name: 'Görög joghurt', description: 'Görög joghurt, bogyós gyümölcs, dió', calories: 200, protein: 20, carbs: 15, fat: 8 },
-      { time: 'Vacsora (19:00)', name: 'Lazac brokkolival', description: 'Sütőben sült lazac, brokkoli, édesburgonya', calories: 400, protein: 35, carbs: 30, fat: 15 }
-    ];
-  };
-
-  const generateActiveChallenges = () => {
-    return [
-      { title: 'Hétköznap Warrior', description: 'Edzz 5 egymást követő hétköznap', progress: 80, points: 500, icon: 'fas fa-calendar-check' },
-      { title: 'Kardió Király', description: 'Fuss összesen 50 km', progress: 60, points: 300, icon: 'fas fa-running' },
-      { title: 'Erő Mester', description: 'Emelj összesen 10 tonna súlyt', progress: 45, points: 750, icon: 'fas fa-dumbbell' }
-    ];
-  };
-
-  const generateEarnedBadges = () => {
-    return [
-      { title: 'Kezdő Lépések', description: 'Első 5 edzés teljesítése', date: '2024. Jan 10.', icon: 'fas fa-shoe-prints', color1: '#4CAF50', color2: '#8BC34A' },
-      { title: 'Kitartó Harcos', description: '30 napos streak', date: '2024. Jan 25.', icon: 'fas fa-fire', color1: '#FF9800', color2: '#FF5722' },
-      { title: 'Kardió Bajnok', description: '100 km futás', date: '2024. Feb 05.', icon: 'fas fa-trophy', color1: '#2196F3', color2: '#03A9F4' }
-    ];
-  };
-
-  const generateLeaderboard = () => {
-    return [
-      { name: 'Nagy Ádám', points: 2450, level: 15 },
-      { name: 'Kiss Éva', points: 2200, level: 14 },
-      { name: 'Kovács Márton', points: 1950, level: 12 },
-      { name: 'Tóth István', points: 1800, level: 11 },
-      { name: 'Szabó Anna', points: 1650, level: 10 }
-    ];
-  };
-
-  const getGoalText = (goal) => {
-    const goals = {
-      'weightLoss': 'Fogyás',
-      'muscleGain': 'Izomnövelés',
-      'fitness': 'Általános fittség',
-      'strength': 'Erőnövelés'
-    };
-    return goals[goal] || 'Általános fittség';
-  };
-
-  const getMotivationMessage = (goal) => {
-    const messages = {
-      'weightLoss': 'Már 68%-nál jársz a heti céljaidban!',
-      'muscleGain': 'A múlt héten 5% több súlyt emeltél!',
-      'fitness': 'Kitartó vagy, folytasd így!',
-      'strength': 'Erőnléted folyamatosan javul!'
-    };
-    return messages[goal] || 'Nagyszerűen haladsz!';
-  };
-
-  const getDailyQuote = (goal) => {
-    const quotes = {
-      'weightLoss': '"Minden nagy utazás apró lépésekből áll. Ma is tedd meg a tiéd!"',
-      'muscleGain': '"Az erő nem a testben, hanem a lélekben lakozik. Ma bizonyítsd!"',
-      'fitness': '"Az egészség a legnagyobb kincs. Ma is ápolni fogod!"',
-      'strength': '"A lehetetlen csak több időt igényel. Kitartás!"'
-    };
-    return quotes[goal] || '"Ma te vagy a legjobb versenytársad. Tegnapnál jobb legyél!"';
-  };
-
-  const getWorkoutType = (goal) => {
-    const types = {
-      'weightLoss': 'KARDIO & HIIT',
-      'muscleGain': 'ERŐEDZÉS',
-      'fitness': 'TELJES TEST',
-      'strength': 'NEHÉZ SÚLYZÓS'
-    };
-    return types[goal] || 'KÖR EDZÉS';
-  };
-
-  const logout = () => {
-    if (window.confirm('Biztosan ki szeretnél jelentkezni?')) {
-      // Ha kaptunk handleLogout prop-ot, használjuk azt
-      if (handleLogout) {
-        handleLogout();
-      } else {
-        // Fallback megoldás
-        localStorage.removeItem('powerplan_user_completed_questionnaire');
-        localStorage.removeItem('powerplan_demo_mode');
-        localStorage.removeItem('powerplan_questionnaire');
-        localStorage.removeItem('powerplan_token');
-        localStorage.removeItem('powerplan_current_user');
-        localStorage.removeItem('powerplan_user_logged_in');
-        localStorage.removeItem('powerplan_remember_me');
-        
-        if (navigateTo) {
-          navigateTo('home');
-        } else {
-          window.location.href = '/';
-        }
-      }
-    }
-  };
-
-  const toggleSidebar = () => {
-    setSidebarActive(!sidebarActive);
-  };
-
-  const showNotifications = () => {
-    setModalOpen('notifications');
-  };
-
-  const closeModal = () => {
-    setModalOpen(null);
-  };
-
-  const showMealLogModal = () => {
-    setModalOpen('mealLog');
-  };
-
-  const saveProfile = () => {
-    const profileData = {
-      name: document.getElementById('profileName')?.value,
-      email: document.getElementById('profileEmail')?.value,
-      phone: document.getElementById('profilePhone')?.value,
-      birthDate: document.getElementById('profileBirthDate')?.value,
-      height: document.getElementById('profileHeight')?.value,
-      weight: document.getElementById('profileWeight')?.value,
-      targetWeight: document.getElementById('profileTargetWeight')?.value,
-      goal: document.getElementById('profileMainGoal')?.value
-    };
-    
-    // Mentés localStorage-ba
-    localStorage.setItem('powerplan_profile', JSON.stringify(profileData));
-    
-    // Frissítsük a userData-t is
-    setUserData(prev => ({
-      ...prev,
-      personalInfo: {
-        ...prev.personalInfo,
-        firstName: profileData.name?.split(' ')[1] || prev.personalInfo?.firstName,
-        lastName: profileData.name?.split(' ')[0] || prev.personalInfo?.lastName,
-        height: profileData.height,
-        weight: profileData.weight,
-        goal: profileData.goal
-      },
-      goals: {
-        ...prev.goals,
-        mainGoal: profileData.goal
-      }
-    }));
-    
-    alert('Profil sikeresen mentve!');
-  };
-
-  const changeWeek = (delta) => {
-    setCurrentWeek(prev => prev + delta);
-  };
-
-  const selectDay = (dayIndex) => {
-    document.querySelectorAll('.day-card').forEach((card, index) => {
-      card.classList.toggle('active', index === dayIndex);
-    });
-    
-    // Update exercises for selected day
-    const workoutExercises = document.getElementById('workoutExercises');
-    if (workoutExercises) {
-      const workout = workoutData.weeklyPlan?.[dayIndex] || { exercises: [] };
-      // Itt lehetne frissíteni a gyakorlatok listáját
-    }
-  };
-
-  // Section titles
   const sectionTitles = {
     'dashboard': { icon: 'fa-home', text: 'Dashboard', subtitle: 'Üdvözöljük az Ön személyre szabott edzés dashboard-án' },
     'workout-plan': { icon: 'fa-dumbbell', text: 'Edzésterv', subtitle: 'Heti edzésterv és gyakorlatok' },
     'workout-mode': { icon: 'fa-play-circle', text: 'Edzés mód', subtitle: 'Aktív edzés követése' },
     'progress': { icon: 'fa-chart-line', text: 'Haladás', subtitle: 'Statisztikák és fejlődés' },
-    'gyms': { icon: 'fa-map-marker-alt', text: 'Edzőtermek', subtitle: 'Közeli edzőtermek és felszerelések' },
     'nutrition': { icon: 'fa-utensils', text: 'Táplálkozás', subtitle: 'Táplálkozási terv és kalóriakövetés' },
-    'profile': { icon: 'fa-user-circle', text: 'Profil', subtitle: 'Személyes adatok és beállítások' },
-    'challenges': { icon: 'fa-trophy', text: 'Kihívások', subtitle: 'Kitüntetések, kihívások és ranglista' }
+    'profile': { icon: 'fa-user-circle', text: 'Profil', subtitle: 'Személyes adatok és beállítások' }
   };
 
   return (
     <div className="dashboard-container">
       {/* Sidebar */}
       <div className={`sidebar ${sidebarActive ? 'active' : ''}`}>
-        <button className="menu-toggle" onClick={toggleSidebar}>
-          <i className="fas fa-bars"></i>
-        </button>
-        
-        <div className="logo">
-          <i className="fas fa-dumbbell"></i>
-          <span>PowerPlan</span>
-        </div>
-        
+        <button className="menu-toggle" onClick={toggleSidebar}><i className="fas fa-bars"></i></button>
+        <div className="logo"><i className="fas fa-dumbbell"></i><span>PowerPlan</span></div>
         <div className="user-profile">
-          <div className="profile-pic" onClick={() => navigateToSection('profile')}>
-            <i className="fas fa-user"></i>
-          </div>
-          <div className="user-name" id="userName">
-            {userData.personalInfo?.lastName} {userData.personalInfo?.firstName}
-          </div>
-          <div className="user-goal" id="userGoal">
-            {getGoalText(userData.goals?.mainGoal)}
-          </div>
+          <div className="profile-pic" onClick={() => navigateToSection('profile')}><i className="fas fa-user"></i></div>
+          <div className="user-name">{userData.personalInfo?.lastName || ''} {userData.personalInfo?.firstName || ''}</div>
+          <div className="user-goal">{userData.goals?.mainGoal || 'Cél nincs megadva'}</div>
         </div>
-        
         <div className="nav-menu">
           {Object.keys(sectionTitles).map(section => (
-            <div 
-              key={section}
-              className={`nav-item ${currentSection === section ? 'active' : ''}`} 
-              onClick={() => navigateToSection(section)}
-            >
-              <i className={`fas ${sectionTitles[section].icon}`}></i>
-              <span>{sectionTitles[section].text}</span>
-              {section === 'workout-plan' && <span className="nav-badge">Ma</span>}
-              {section === 'progress' && <span className="nav-badge">+15%</span>}
-              {section === 'nutrition' && <span className="nav-badge">1200 kcal</span>}
-              {section === 'challenges' && <span className="nav-badge">3 új</span>}
+            <div key={section} className={`nav-item ${currentSection === section ? 'active' : ''}`} onClick={() => navigateToSection(section)}>
+              <i className={`fas ${sectionTitles[section].icon}`}></i><span>{sectionTitles[section].text}</span>
             </div>
           ))}
         </div>
-        
-        <button className="logout-btn" onClick={logout}>
-          <i className="fas fa-sign-out-alt"></i>
-          <span>Kijelentkezés</span>
-        </button>
+        <button className="logout-btn" onClick={logout}><i className="fas fa-sign-out-alt"></i><span>Kijelentkezés</span></button>
       </div>
 
-      {/* Main Content */}
       <div className={`main-content ${sidebarActive ? 'full-width' : ''}`}>
-        {/* Top Bar */}
         <div className="top-bar">
           <div className="page-title">
-            <h1>
-              <i className={`fas ${sectionTitles[currentSection].icon}`}></i>
-              <span>{sectionTitles[currentSection].text}</span>
-            </h1>
-            <p>{sectionTitles[currentSection].subtitle}</p>
+            <h1><i className={`fas ${sectionTitles[currentSection]?.icon}`}></i><span>{sectionTitles[currentSection]?.text}</span></h1>
+            <p>{sectionTitles[currentSection]?.subtitle}</p>
           </div>
-          
-          <div className="top-actions">
-            <div className="date-time" id="currentDateTime"></div>
-            <button className="notification-btn" onClick={showNotifications}>
-              <i className="fas fa-bell"></i>
-              <span className="notification-badge" id="notificationCount">3</span>
-            </button>
-          </div>
+          <div className="top-actions"><div className="date-time" id="currentDateTime"></div></div>
         </div>
 
         {/* Dashboard Section */}
         <div className={`content-section ${currentSection === 'dashboard' ? 'active' : ''}`}>
-          {/* Welcome Card */}
           <div className="card">
             <div className="section-header">
-              <h2>Üdvözöljük, <span id="userFirstName">{userData.personalInfo?.firstName}</span>!</h2>
-              <div className="streak-counter">
-                <div className="streak-number" id="streakCount">{workoutData.stats?.streak || 7}</div>
-                <div className="streak-label">EGYMÁST KÖVETŐ NAP</div>
-              </div>
+              <h2>Üdvözöljük, <span>{userData.personalInfo?.firstName || 'Felhasználó'}</span>!</h2>
             </div>
-            <p id="welcomeMessage">Ma kiváló nap az edzésre! {getMotivationMessage(userData.goals?.mainGoal)}</p>
-            <div className="motivation-quote" id="dailyQuote">{getDailyQuote(userData.goals?.mainGoal)}</div>
+            
+            <div style={{ padding: '15px', background: 'rgba(42, 157, 143, 0.1)', borderRadius: '10px', borderLeft: '4px solid var(--success)', marginBottom: '20px' }}>
+              <h3 style={{ color: 'var(--success)', marginBottom: '10px' }}><i className="fas fa-robot"></i> AI Ajánlás a céljaidhoz:</h3>
+              <p style={{ fontWeight: '500' }}>{workoutData.aiRecommendation || 'Töltsd ki a kérdőívet a személyre szabott tippekért!'}</p>
+            </div>
+
+            <div className="workout-actions">
+              <button className="btn btn-secondary" onClick={() => navigateToSection('workout-plan')}><i className="fas fa-list"></i> Teljes edzésterv</button>
+            </div>
           </div>
 
-          {/* Stats Grid */}
           <div className="stats-grid">
             <div className="stat-card">
-              <div className="stat-icon">
-                <i className="fas fa-dumbbell"></i>
-              </div>
+              <div className="stat-icon"><i className="fas fa-dumbbell"></i></div>
               <div className="stat-info">
-                <h3>HETI EDZÉSEK</h3>
-                <div className="stat-number" id="weeklyWorkouts">
-                  {workoutData.stats?.completedWorkouts}/{workoutData.stats?.weeklyTarget}
-                </div>
+                <h3>FELVETT EDZÉSNAPOK</h3>
+                <div className="stat-number">{workoutData.stats?.totalWorkouts || 0} db</div>
               </div>
             </div>
-            
             <div className="stat-card">
-              <div className="stat-icon">
-                <i className="fas fa-fire"></i>
-              </div>
+              <div className="stat-icon"><i className="fas fa-fire"></i></div>
               <div className="stat-info">
                 <h3>ELÉGETETT KALÓRIA</h3>
-                <div className="stat-number" id="caloriesBurned">2,450</div>
+                <div className="stat-number">{nutritionData.dailyCalories || 0}</div>
               </div>
             </div>
-            
             <div className="stat-card">
-              <div className="stat-icon">
-                <i className="fas fa-weight"></i>
-              </div>
+              <div className="stat-icon"><i className="fas fa-weight"></i></div>
               <div className="stat-info">
-                <h3>MEGVÁLTOZOTT SÚLY</h3>
-                <div className="stat-number" id="weightChange">-1.2 kg</div>
-              </div>
-            </div>
-            
-            <div className="stat-card">
-              <div className="stat-icon">
-                <i className="fas fa-heartbeat"></i>
-              </div>
-              <div className="stat-info">
-                <h3>ÁTLAGOS PULZUS</h3>
-                <div className="stat-number" id="avgHeartRate">142</div>
+                <h3>JELENLEGI TESTSÚLY</h3>
+                <div className="stat-number">{userData.personalInfo?.weight || '-'} kg</div>
               </div>
             </div>
           </div>
 
-          {/* Today's Workout */}
-          <div className="card">
-            <div className="section-header">
-              <h2>Mai edzésed</h2>
-              <div className="workout-type-badge" id="workoutType">
-                {getWorkoutType(userData.goals?.mainGoal)}
-              </div>
-            </div>
-            
-            <div className="exercise-list" id="todaysExercises">
-              {workoutData.todayWorkout?.map((exercise, index) => (
-                <div key={index} className="exercise-card">
-                  <div className="exercise-icon">
-                    <i className={exercise.icon}></i>
-                  </div>
-                  <div className="exercise-info">
-                    <h4>{exercise.name}</h4>
-                    <div className="exercise-details">{exercise.sets} × {exercise.reps}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            
-            <div className="workout-actions">
-              <button className="btn btn-secondary" onClick={() => navigateToSection('workout-plan')}>
-                <i className="fas fa-list"></i> Teljes edzésterv
-              </button>
-              <button className="btn btn-primary" onClick={() => navigateToSection('workout-mode')}>
-                <i className="fas fa-play"></i> Edzés indítása
-              </button>
-            </div>
-          </div>
-
-          {/* Charts Grid */}
           <div className="charts-grid">
             <div className="chart-container">
-              <div className="section-header">
-                <h3>Súlyfejlődés</h3>
-              </div>
+              <div className="section-header"><h3>Súlyfejlődés</h3></div>
               <Line data={weightChartData} options={chartOptions('Testsúly (kg)')} />
             </div>
-            
             <div className="chart-container">
-              <div className="section-header">
-                <h3>Edzési gyakoriság</h3>
-              </div>
-              <Bar data={workoutChartData} options={chartOptions('Perc')} />
+              <div className="section-header"><h3>Edzési gyakoriság</h3></div>
+              <Bar data={workoutChartData} options={chartOptions('Edzés Perc')} />
             </div>
           </div>
         </div>
@@ -663,52 +338,61 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
           <div className="card">
             <div className="section-header">
               <h2><i className="fas fa-dumbbell"></i> Heti Edzésterv</h2>
-              <div className="week-navigation">
-                <button className="btn btn-secondary" onClick={() => changeWeek(-1)}>
-                  <i className="fas fa-chevron-left"></i> Előző hét
-                </button>
-                <h3 id="currentWeek">2024. {currentWeek + 3}. hét (Jan 22-28)</h3>
-                <button className="btn btn-secondary" onClick={() => changeWeek(1)}>
-                  Következő hét <i className="fas fa-chevron-right"></i>
-                </button>
-              </div>
             </div>
-
-            <div className="week-days" id="weekDays">
-              {['Hétfő', 'Kedd', 'Szerda', 'Csütörtök', 'Péntek', 'Szombat', 'Vasárnap'].map((day, index) => {
-                const today = new Date().getDay();
-                const isToday = (index === (today + 6) % 7);
-                const workout = workoutData.weeklyPlan?.[index] || { type: 'Pihenő', exercises: [] };
-                
+            <div className="week-days">
+              {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day, index) => {
+                const dayNamesHU = ['Hétfő', 'Kedd', 'Szerda', 'Csütörtök', 'Péntek', 'Szombat', 'Vasárnap'];
+                const isToday = (index === (new Date().getDay() + 6) % 7);
                 return (
-                  <div 
-                    key={index}
-                    className={`day-card ${isToday ? 'active' : ''}`}
-                    onClick={() => selectDay(index)}
-                  >
-                    <div className="day-name">{day}</div>
-                    <div className="day-workout">{workout.type}</div>
-                    <div className="day-exercises">{workout.exercises.length} gyakorlat</div>
+                  <div key={index} className={`day-card ${isToday ? 'active' : ''}`} onClick={() => selectDay(index)}>
+                    <div className="day-name">{dayNamesHU[index]}</div>
                   </div>
                 );
               })}
             </div>
-
-            <div className="exercise-list" id="workoutExercises">
-              {workoutData.weeklyPlan?.[(new Date().getDay() + 6) % 7]?.exercises?.map((exercise, index) => (
-                <div key={index} className="exercise-card">
-                  <div className="exercise-icon">
-                    <i className={exercise.icon}></i>
-                  </div>
-                  <div className="exercise-info">
-                    <h4>{exercise.name}</h4>
-                    <div className="exercise-details">{exercise.sets} × {exercise.reps}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--gray)', marginTop: '5px' }}>
-                      {exercise.description}
+            
+            {workoutData.weeklyPlan && workoutData.weeklyPlan.length > 0 ? (
+               <div className="exercise-list" style={{ marginTop: '30px' }}>
+                 {/* Végigmegyünk a lekérdezett edzésnapokon */}
+                 {workoutData.weeklyPlan.map((workout, index) => (
+                    <div key={index} className="exercise-card" style={{ display: 'block', width: '100%', background: 'white', border: '1px solid #eee' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px', paddingBottom: '10px', borderBottom: '2px solid var(--primary)' }}>
+                        <div className="exercise-icon"><i className="fas fa-dumbbell"></i></div>
+                        <div className="exercise-info">
+                          <h4 style={{ fontSize: '1.2rem' }}>{workout.name} ({workout.type})</h4>
+                          <div className="exercise-details">Nap: {workout.day} | Összesen {workout.exercises.length} gyakorlat</div>
+                        </div>
+                      </div>
+                      
+                      {/* Edzésnapon belüli gyakorlatok listázása */}
+                      <div style={{ padding: '10px' }}>
+                        {workout.exercises.map((ex, exIndex) => (
+                          <div key={exIndex} style={{ marginBottom: '15px', padding: '10px', background: 'var(--light)', borderRadius: '8px' }}>
+                            <strong style={{ color: 'var(--dark)' }}>{ex.name}</strong> <span style={{ fontSize: '0.8rem', color: 'var(--gray)' }}>({ex.muscle})</span>
+                            <div style={{ marginTop: '8px' }}>
+                              {ex.sets.map((set, sIndex) => (
+                                <div key={sIndex} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dotted #ccc', padding: '4px 0', fontSize: '0.85rem' }}>
+                                  <span>Szett {sIndex + 1}:</span>
+                                  <span>{set.weight} kg</span>
+                                  <span>{set.reps} ism.</span>
+                                  <span>{set.rpe ? `RPE: ${set.rpe}` : '-'}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))}
+                 ))}
+               </div>
+            ) : (
+              <p style={{ color: 'var(--gray)', padding: '20px 0', textAlign: 'center' }}>Még nincs aktív edzésterved betöltve az adatbázisból.</p>
+            )}
+
+            <div style={{ textAlign: 'center', marginTop: '30px' }}>
+              <button className="btn btn-primary" onClick={showWorkoutModal}>
+                <i className="fas fa-plus"></i> Új Edzés és Gyakorlat Felvétele
+              </button>
             </div>
           </div>
         </div>
@@ -718,181 +402,17 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
           <div className="workout-mode">
             <div className="section-header">
               <h2><i className="fas fa-play-circle"></i> Edzés mód</h2>
-              <button className="btn btn-secondary" onClick={stopWorkout}>
-                <i className="fas fa-stop"></i> Edzés befejezése
-              </button>
+              <button className="btn btn-secondary" onClick={stopWorkout}><i className="fas fa-stop"></i> Edzés befejezése</button>
             </div>
-
             <div className="current-exercise">
-              <h3 id="currentExerciseName">Fekvenyomás</h3>
-              <p id="currentExerciseDetails">4 sorozat × 8-12 ismétlés</p>
+              <h3>Nincs aktív gyakorlat</h3>
+              <p>Kérlek előbb vegyél fel egy edzéstervet!</p>
             </div>
-
-            <div className="workout-timer" id="workoutTimer">{formatTime(workoutTime)}</div>
-
-            <div className="exercise-stats">
-              <div className="stat-box">
-                <div className="stat-value" id="currentSet">1/4</div>
-                <div className="stat-label">Sorozat</div>
-              </div>
-              <div className="stat-box">
-                <div className="stat-value" id="currentReps">8</div>
-                <div className="stat-label">Ismétlés</div>
-              </div>
-              <div className="stat-box">
-                <div className="stat-value" id="currentWeight">60 kg</div>
-                <div className="stat-label">Súly</div>
-              </div>
-            </div>
-
+            <div className="workout-timer">{formatTime(workoutTime)}</div>
             <div className="workout-controls">
-              <button className="control-btn" onClick={() => {}}>
-                <i className="fas fa-step-backward"></i>
-              </button>
-              <button className="control-btn" onClick={toggleWorkout} id="playPauseBtn">
-                <i className={`fas ${workoutActive ? 'fa-pause' : 'fa-play'}`} id="playPauseIcon"></i>
-              </button>
-              <button className="control-btn" onClick={() => {}}>
-                <i className="fas fa-step-forward"></i>
-              </button>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="section-header">
-              <h3><i className="fas fa-list"></i> Mai edzés gyakorlatai</h3>
-            </div>
-            <div className="exercise-list" id="workoutModeExercises">
-              {workoutData.todayWorkout?.map((exercise, index) => (
-                <div key={index} className="exercise-card">
-                  <div className="exercise-icon">
-                    <i className={exercise.icon}></i>
-                  </div>
-                  <div className="exercise-info">
-                    <h4>{exercise.name}</h4>
-                    <div className="exercise-details">{exercise.sets} × {exercise.reps}</div>
-                    <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                      <button className="btn btn-secondary" style={{ padding: '5px 10px', fontSize: '0.8rem' }}>
-                        <i className="fas fa-check"></i> Kész
-                      </button>
-                      <button className="btn btn-secondary" style={{ padding: '5px 10px', fontSize: '0.8rem' }}>
-                        <i className="fas fa-redo"></i> Ismétlés
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Progress Section */}
-        <div className={`content-section ${currentSection === 'progress' ? 'active' : ''}`}>
-          <div className="card">
-            <div className="section-header">
-              <h2><i className="fas fa-chart-line"></i> Haladás és Statisztikák</h2>
-              <select className="form-control" style={{ width: '200px' }} id="progressPeriod">
-                <option value="month">1 hónap</option>
-                <option value="quarter" selected>3 hónap</option>
-                <option value="year">1 év</option>
-              </select>
-            </div>
-
-            <div className="charts-grid">
-              <div className="chart-container">
-                <h3>Testsúly változás</h3>
-                <canvas id="progressWeightChart"></canvas>
-              </div>
-              <div className="chart-container">
-                <h3>Izomerő fejlődés</h3>
-                <canvas id="strengthChart"></canvas>
-              </div>
-              <div className="chart-container">
-                <h3>Edzés gyakoriság</h3>
-                <canvas id="frequencyChart"></canvas>
-              </div>
-              <div className="chart-container">
-                <h3>Kalória egyensúly</h3>
-                <canvas id="caloriesChart"></canvas>
-              </div>
-            </div>
-
-            <div className="quick-stats">
-              <div className="quick-stat">
-                <div className="quick-stat-value" id="totalWorkouts">{workoutData.stats?.totalWorkouts}</div>
-                <div className="quick-stat-label">ÖSSZES EDZÉS</div>
-              </div>
-              <div className="quick-stat">
-                <div className="quick-stat-value" id="workoutHours">{workoutData.stats?.workoutHours}</div>
-                <div className="quick-stat-label">EDZÉS ÖSSZES ÓRA</div>
-              </div>
-              <div className="quick-stat">
-                <div className="quick-stat-value" id="totalWeightLifted">{workoutData.stats?.totalWeightLifted}</div>
-                <div className="quick-stat-label">EMELT SÚLY ÖSSZESEN (KG)</div>
-              </div>
-              <div className="quick-stat">
-                <div className="quick-stat-value" id="achievementRate">78%</div>
-                <div className="quick-stat-label">CÉLOK ELÉRÉSI ARÁNYA</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Gyms Section */}
-        <div className={`content-section ${currentSection === 'gyms' ? 'active' : ''}`}>
-          <div className="card">
-            <div className="section-header">
-              <h2><i className="fas fa-map-marker-alt"></i> Közeli Edzőtermek</h2>
-              <div className="top-actions">
-                <select className="form-control" style={{ width: '200px' }} id="gymFilter">
-                  <option value="all">Összes edzőterem</option>
-                  <option value="24_7">24/7 nyitva</option>
-                  <option value="crossfit">CrossFit</option>
-                  <option value="women_only">Női terem</option>
-                  <option value="beginner_friendly">Kezdőbarát</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="map-container" id="gymMap">
-              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f0f0', color: 'var(--gray)' }}>
-                <i className="fas fa-map" style={{ fontSize: '3rem', marginRight: '15px' }}></i>
-                <div>
-                  <h3>Edzőterem térkép</h3>
-                  <p>A térkép itt jelenik meg a közeli edzőtermekkel</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="gyms-list" id="gymsList">
-              {[
-                { name: 'Fitness World', address: 'Budapest, Deák tér 3.', distance: '0.8 km', features: ['24/7', 'Szauna', 'CrossFit'], price: '4.990 Ft/hó', hours: '0-24 óra' },
-                { name: 'Power Gym', address: 'Budapest, Andrássy út 45.', distance: '1.2 km', features: ['Súlyzók', 'Kardió', 'Csoportos'], price: '6.990 Ft/hó', hours: '6-22 óra' },
-                { name: 'Women Only Fitness', address: 'Budapest, Teréz körút 12.', distance: '1.5 km', features: ['Női terem', 'Jóga', 'Pilates'], price: '5.990 Ft/hó', hours: '7-21 óra' },
-                { name: 'CrossFit Downtown', address: 'Budapest, Nagymező utca 20.', distance: '2.1 km', features: ['CrossFit', 'Funkcionális', 'Edzőkkel'], price: '8.990 Ft/hó', hours: '6-23 óra' }
-              ].map((gym, index) => (
-                <div key={index} className="gym-card">
-                  <div className="gym-header">
-                    <h3>{gym.name}</h3>
-                    <div className="gym-distance">{gym.distance}</div>
-                  </div>
-                  <p style={{ color: 'var(--gray)', marginBottom: '15px' }}>{gym.address}</p>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '15px' }}>
-                    {gym.features.map((feature, i) => (
-                      <span key={i} style={{ background: 'var(--light)', padding: '5px 10px', borderRadius: '15px', fontSize: '0.8rem' }}>{feature}</span>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontWeight: 600, color: 'var(--dark)' }}>{gym.price}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--gray)' }}>{gym.hours}</div>
-                    </div>
-                    <button className="btn btn-primary" style={{ padding: '8px 20px' }}>
-                      <i className="fas fa-directions"></i> Útvonal
-                    </button>
-                  </div>
-                </div>
-              ))}
+              <button className="control-btn" onClick={() => {}}><i className="fas fa-step-backward"></i></button>
+              <button className="control-btn" onClick={toggleWorkout}><i className={`fas ${workoutActive ? 'fa-pause' : 'fa-play'}`}></i></button>
+              <button className="control-btn" onClick={() => {}}><i className="fas fa-step-forward"></i></button>
             </div>
           </div>
         </div>
@@ -902,58 +422,19 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
           <div className="card">
             <div className="section-header">
               <h2><i className="fas fa-utensils"></i> Napi Táplálkozási Terv</h2>
-              <button className="btn btn-primary" onClick={showMealLogModal}>
-                <i className="fas fa-plus"></i> Étkezés naplózása
-              </button>
+              <button className="btn btn-primary" onClick={showMealLogModal}><i className="fas fa-plus"></i> Étkezés naplózása</button>
             </div>
-
-            <div className="meal-plan" id="dailyMealPlan">
+            <div className="meal-plan">
               {nutritionData.todayMeals?.map((meal, index) => (
                 <div key={index} className="meal-card">
                   <div className="meal-time">{meal.time}</div>
                   <h4 style={{ marginBottom: '10px' }}>{meal.name}</h4>
                   <p style={{ color: 'var(--gray)', marginBottom: '15px' }}>{meal.description}</p>
                   <div className="macros">
-                    <div className="macro">
-                      <div className="macro-value">{meal.protein}g</div>
-                      <div className="macro-label">Fehérje</div>
-                    </div>
-                    <div className="macro">
-                      <div className="macro-value">{meal.carbs}g</div>
-                      <div className="macro-label">Szénhidrát</div>
-                    </div>
-                    <div className="macro">
-                      <div className="macro-value">{meal.fat}g</div>
-                      <div className="macro-label">Zsír</div>
-                    </div>
+                    <div className="macro"><div className="macro-value">{meal.calories}</div><div className="macro-label">Kcal</div></div>
                   </div>
                 </div>
               ))}
-            </div>
-
-            <div className="card">
-              <div className="section-header">
-                <h3>Makró tápanyagok</h3>
-                <div className="macros-overview">
-                  <div className="stat-number">2,100 <span style={{ fontSize: '1rem' }}>kcal</span></div>
-                  <div style={{ color: 'var(--gray)' }}>Napi cél</div>
-                </div>
-              </div>
-              
-              <div className="macros">
-                <div className="macro">
-                  <div className="macro-value" style={{ color: 'var(--primary)' }}>{nutritionData.macros?.protein}g</div>
-                  <div className="macro-label">Fehérje</div>
-                </div>
-                <div className="macro">
-                  <div className="macro-value" style={{ color: 'var(--success)' }}>{nutritionData.macros?.carbs}g</div>
-                  <div className="macro-label">Szénhidrát</div>
-                </div>
-                <div className="macro">
-                  <div className="macro-value" style={{ color: 'var(--warning)' }}>{nutritionData.macros?.fat}g</div>
-                  <div className="macro-label">Zsír</div>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -963,254 +444,179 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
           <div className="card">
             <div className="section-header">
               <h2><i className="fas fa-user-circle"></i> Profilom</h2>
-              <button className="btn btn-primary" onClick={saveProfile}>
-                <i className="fas fa-save"></i> Módosítások mentése
-              </button>
             </div>
-
-            {/* A key biztosítja, hogy a szerver válasza után frissüljenek az input mezők! */}
-            <div className="profile-form" id="profileForm" key={userData.personalInfo?.height || 'loading'}>
-              <div>
-                <div className="form-group">
-                  <label>Teljes név</label>
-                  <input type="text" className="form-control" id="profileName" defaultValue={`${userData.personalInfo?.lastName || ''} ${userData.personalInfo?.firstName || ''}`} />
-                </div>
-                <div className="form-group">
-                  <label>Email cím</label>
-                  <input type="email" className="form-control" id="profileEmail" defaultValue="kovacs.marton@example.com" />
-                </div>
-                <div className="form-group">
-                  <label>Telefonszám</label>
-                  <input type="tel" className="form-control" id="profilePhone" defaultValue="+36 30 123 4567" />
-                </div>
-                <div className="form-group">
-                  <label>Születési dátum</label>
-                  <input type="date" className="form-control" id="profileBirthDate" defaultValue="1990-05-15" />
-                </div>
+            <div className="profile-form">
+              <div className="form-group">
+                <label>Név</label>
+                <input type="text" className="form-control" defaultValue={`${userData.personalInfo?.lastName || ''} ${userData.personalInfo?.firstName || ''}`.trim()} readOnly />
               </div>
-              
-              <div>
-                <div className="form-group">
-                  <label>Magasság (cm)</label>
-                  <input type="number" className="form-control" id="profileHeight" defaultValue={userData.personalInfo?.height} />
-                </div>
-                <div className="form-group">
-                  <label>Jelenlegi testsúly (kg)</label>
-                  <input type="number" className="form-control" id="profileWeight" defaultValue={userData.personalInfo?.weight} step="0.1" />
-                </div>
-                <div className="form-group">
-                  <label>Cél testsúly (kg)</label>
-                  <input type="number" className="form-control" id="profileTargetWeight" defaultValue="78.0" step="0.1" />
-                </div>
-                <div className="form-group">
-                  <label>Fő cél</label>
-                  <select className="form-control" id="profileMainGoal" defaultValue={userData.goals?.mainGoal}>
-                    <option value="weightLoss">Fogyás</option>
-                    <option value="muscleGain">Izomtömeg-növelés</option>
-                    <option value="fitness">Általános fittség</option>
-                    <option value="strength">Erőnövelés</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="section-header">
-                <h3>Edzési beállítások</h3>
-              </div>
-              <div className="profile-form">
-                <div>
-                  <div className="form-group">
-                    <label>Heti edzések száma</label>
-                    <select className="form-control" id="profileWorkoutFrequency">
-                      <option value="2">2 alkalom</option>
-                      <option value="3" selected>3 alkalom</option>
-                      <option value="4">4 alkalom</option>
-                      <option value="5">5 alkalom</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Edzés hossza</label>
-                    <select className="form-control" id="profileWorkoutDuration">
-                      <option value="30">30 perc</option>
-                      <option value="45">45 perc</option>
-                      <option value="60" selected>60 perc</option>
-                      <option value="90">90 perc</option>
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <div className="form-group">
-                    <label>Kedvenc edzés típus</label>
-                    <select className="form-control" id="profileWorkoutType">
-                      <option value="strength">Erőedzés</option>
-                      <option value="cardio" selected>Kardio</option>
-                      <option value="hybrid">Vegyes</option>
-                      <option value="crossfit">CrossFit</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Értesítések</label>
-                    <div>
-                      <label style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                        <input type="checkbox" id="profileNotifications" defaultChecked style={{ marginRight: '10px' }} />
-                        Edzés emlékeztetők
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center' }}>
-                        <input type="checkbox" id="profileNewsletter" defaultChecked style={{ marginRight: '10px' }} />
-                        Hírlevél és tippek
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Challenges Section */}
-        <div className={`content-section ${currentSection === 'challenges' ? 'active' : ''}`}>
-          <div className="card">
-            <div className="section-header">
-              <h2><i className="fas fa-trophy"></i> Kihívások és Kitüntetések</h2>
-              <div className="top-actions">
-                <div className="user-level">
-                  <div className="stat-number" style={{ color: 'var(--secondary)' }}>{challengesData.level}</div>
-                  <div style={{ color: 'var(--gray)' }}>Szint</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="challenges-grid" id="activeChallenges">
-              {challengesData.activeChallenges?.map((challenge, index) => (
-                <div key={index} className="challenge-card">
-                  <div className="challenge-badge">
-                    <i className={challenge.icon}></i>
-                  </div>
-                  <h3>{challenge.title}</h3>
-                  <p style={{ color: 'var(--gray)', margin: '10px 0' }}>{challenge.description}</p>
-                  <div className="challenge-progress">
-                    <div className="challenge-progress-fill" style={{ width: `${challenge.progress}%` }}></div>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '15px' }}>
-                    <span>{challenge.progress}%</span>
-                    <span>{challenge.points} pont</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="card">
-              <div className="section-header">
-                <h3>Megszerzett kitüntetések</h3>
-              </div>
-              <div className="challenges-grid" id="earnedBadges">
-                {challengesData.earnedBadges?.map((badge, index) => (
-                  <div key={index} className="challenge-card">
-                    <div className="challenge-badge" style={{ background: `linear-gradient(135deg, ${badge.color1} 0%, ${badge.color2} 100%)` }}>
-                      <i className={badge.icon}></i>
-                    </div>
-                    <h3>{badge.title}</h3>
-                    <p style={{ color: 'var(--gray)', margin: '10px 0' }}>{badge.description}</p>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--gray)' }}>
-                      {badge.date}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="section-header">
-                <h3>Ranglista</h3>
-                <button className="btn btn-secondary" onClick={() => {}}>
-                  <i className="fas fa-list-ol"></i> Teljes ranglista
-                </button>
-              </div>
-              
-              <div className="leaderboard" id="weeklyLeaderboard">
-                {challengesData.leaderboard?.map((user, index) => (
-                  <div key={index} style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '15px',
-                    borderBottom: '1px solid #eee',
-                    background: index < 3 ? 'rgba(244, 162, 97, 0.1)' : 'white'
-                  }}>
-                    <div style={{ fontWeight: 600, width: '40px', textAlign: 'center', color: index < 3 ? 'var(--secondary)' : 'var(--gray)' }}>
-                      {index + 1}.
-                    </div>
-                    <div style={{ flexGrow: 1 }}>
-                      <div style={{ fontWeight: 600 }}>{user.name}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--gray)' }}>{user.level}. szint</div>
-                    </div>
-                    <div style={{ fontWeight: 600, color: 'var(--dark)' }}>
-                      {user.points} pont
-                    </div>
-                  </div>
-                ))}
+              <div className="form-group">
+                <label>Email cím</label>
+                <input type="email" className="form-control" defaultValue={userData.email || ''} readOnly />
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Modal for notifications */}
-      <div className={`modal ${modalOpen === 'notifications' ? 'active' : ''}`} id="notificationsModal">
-        <div className="modal-content">
-          <div className="section-header">
-            <h2><i className="fas fa-bell"></i> Értesítések</h2>
-            <button className="btn btn-secondary" onClick={closeModal}>
-              <i className="fas fa-times"></i>
-            </button>
-          </div>
-          <div id="notificationsList">
-            <div style={{ padding: '15px', borderBottom: '1px solid #eee' }}>
-              <div style={{ fontWeight: 600 }}>Új kihívás elérhető!</div>
-              <div style={{ fontSize: '0.9rem', color: 'var(--gray)' }}>Indítsd el a heti kihívást</div>
-            </div>
-            <div style={{ padding: '15px', borderBottom: '1px solid #eee' }}>
-              <div style={{ fontWeight: 600 }}>Mai edzésed 18:00-kor</div>
-              <div style={{ fontSize: '0.9rem', color: 'var(--gray)' }}>Ne felejtsd el a felsőtest edzést!</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Modal for meal logging */}
-      <div className={`modal ${modalOpen === 'mealLog' ? 'active' : ''}`} id="mealLogModal">
+      {/* Modal: Étkezés naplózása */}
+      <div className={`modal ${modalOpen === 'mealLog' ? 'active' : ''}`}>
         <div className="modal-content">
           <div className="section-header">
             <h2><i className="fas fa-plus"></i> Étkezés naplózása</h2>
-            <button className="btn btn-secondary" onClick={closeModal}>
-              <i className="fas fa-times"></i>
-            </button>
+            <button className="btn btn-secondary" onClick={closeModal}><i className="fas fa-times"></i></button>
           </div>
-          <form id="mealLogForm" onSubmit={(e) => { e.preventDefault(); alert('Étkezés naplózva!'); closeModal(); }}>
+          <form id="mealLogForm" onSubmit={handleMealSubmit}>
             <div className="form-group">
               <label>Étkezés típusa</label>
-              <select className="form-control" id="mealType" required>
-                <option value="">Válasszon...</option>
+              <select className="form-control" id="mealType" defaultValue="" required>
+                <option value="" disabled>Válasszon...</option>
                 <option value="breakfast">Reggeli</option>
                 <option value="lunch">Ebéd</option>
                 <option value="dinner">Vacsora</option>
                 <option value="snack">Nassolás</option>
               </select>
             </div>
-            <div className="form-group">
-              <label>Étel leírása</label>
-              <textarea className="form-control" id="mealDescription" rows="3" required></textarea>
+            <div className="form-group"><label>Étel neve</label><input type="text" className="form-control" id="mealName" required /></div>
+            <div className="form-group"><label>Kalória (kcal)</label><input type="number" className="form-control" id="mealCalories" required /></div>
+            <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Naplózás</button>
+          </form>
+        </div>
+      </div>
+
+      {/* DINAMIKUS MODAL: Edzésterv Hozzáadása */}
+      <div className={`modal ${modalOpen === 'workoutLog' ? 'active' : ''}`}>
+        <div className="modal-content" style={{ maxWidth: '700px' }}>
+          <div className="section-header">
+            <h2><i className="fas fa-dumbbell"></i> Komplex Edzésterv Felvétele</h2>
+            <button className="btn btn-secondary" onClick={closeModal}><i className="fas fa-times"></i></button>
+          </div>
+          
+          <form id="workoutForm" onSubmit={handleWorkoutSubmit}>
+            <div style={{ display: 'flex', gap: '15px' }}>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>Edzésnap (pl. Felsőtest Nap)</label>
+                <input type="text" className="form-control" value={workoutFormDetails.name} onChange={(e) => setWorkoutFormDetails({...workoutFormDetails, name: e.target.value})} required />
+              </div>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>Melyik nap?</label>
+                <select className="form-control" value={workoutFormDetails.day} onChange={(e) => setWorkoutFormDetails({...workoutFormDetails, day: e.target.value})} required>
+                  <option value="" disabled>Válasszon...</option>
+                  <option value="monday">Hétfő</option>
+                  <option value="tuesday">Kedd</option>
+                  <option value="wednesday">Szerda</option>
+                  <option value="thursday">Csütörtök</option>
+                  <option value="friday">Péntek</option>
+                  <option value="saturday">Szombat</option>
+                  <option value="sunday">Vasárnap</option>
+                </select>
+              </div>
             </div>
+
             <div className="form-group">
-              <label>Kalória (kcal)</label>
-              <input type="number" className="form-control" id="mealCalories" required />
+              <label>Edzés Típusa (Ez szűri az izomcsoportokat!)</label>
+              <select className="form-control" value={workoutFormDetails.type} onChange={(e) => {
+                setWorkoutFormDetails({...workoutFormDetails, type: e.target.value});
+                // Reseteljük az eddigi gyakorlatokat, ha átállítja a típust
+                setExercisesList([{ id: Date.now(), muscleGroup: '', name: '', sets: [{ weight: '', reps: '', rpe: '' }] }]);
+              }} required>
+                <option value="" disabled>Válasszon...</option>
+                <option value="push">Push (Csak Nyomó izmok)</option>
+                <option value="pull">Pull (Csak Húzó izmok)</option>
+                <option value="legs">Legs (Láb)</option>
+                <option value="full_body">Teljes Test (Minden izom)</option>
+              </select>
             </div>
-            <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-              <i className="fas fa-save"></i> Naplózás
+            
+            <hr style={{ margin: '30px 0', border: '1px solid var(--primary)' }} />
+
+            {/* VÉGTELEN GYAKORLAT HOZZÁADÁS CIKLUS */}
+            {exercisesList.map((exercise, exIndex) => {
+              // Megnézzük a kiválasztott típus alapján, mik az engedélyezett izmok
+              const allowedMuscles = workoutFormDetails.type ? MUSCLE_FILTER[workoutFormDetails.type] : Object.keys(EXERCISE_DB);
+
+              return (
+                <div key={exercise.id} style={{ background: '#f8f9fa', padding: '20px', borderRadius: '10px', marginBottom: '20px', border: '1px solid #ddd' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                    <h4 style={{ color: 'var(--dark)' }}>{exIndex + 1}. Gyakorlat</h4>
+                    {exercisesList.length > 1 && (
+                      <button type="button" onClick={() => handleRemoveExerciseBlock(exercise.id)} style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontWeight: 'bold' }}>
+                        <i className="fas fa-times"></i> Gyakorlat törlése
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
+                    <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                      <label>Izomcsoport</label>
+                      <select className="form-control" value={exercise.muscleGroup} onChange={(e) => handleExerciseChange(exercise.id, 'muscleGroup', e.target.value)} required>
+                        <option value="" disabled>Válasszon...</option>
+                        {allowedMuscles.map(muscle => (
+                          <option key={muscle} value={muscle}>{muscle}</option>
+                        ))}
+                      </select>
+                    </div>
+                    
+                    <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                      <label>Gyakorlat Listából</label>
+                      <select className="form-control" value={exercise.name} onChange={(e) => handleExerciseChange(exercise.id, 'name', e.target.value)} required disabled={!exercise.muscleGroup}>
+                        <option value="" disabled>Válasszon...</option>
+                        {exercise.muscleGroup && EXERCISE_DB[exercise.muscleGroup].map(exName => (
+                          <option key={exName} value={exName}>{exName}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Szettek a gyakorlaton belül */}
+                  <div style={{ padding: '15px', background: 'white', borderRadius: '8px', border: '1px dashed #ccc' }}>
+                    {exIndex === 0 && (
+                      <div style={{ fontSize: '0.8rem', color: 'var(--info)', marginBottom: '15px' }}>
+                        <i className="fas fa-info-circle"></i> <strong>Mi az az RPE?</strong> 1-10 skála a nehézségről. 10 = bukás, 9 = 1 ismétlés maradt. (Opcionális)
+                      </div>
+                    )}
+
+                    {exercise.sets.map((set, setIndex) => (
+                      <div key={setIndex} style={{ display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'flex-end' }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: '0.8rem' }}>{setIndex + 1}. Szett Súly (kg)</label>
+                          <input type="number" className="form-control" value={set.weight} onChange={(e) => handleSetChange(exercise.id, setIndex, 'weight', e.target.value)} required />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: '0.8rem' }}>Ismétlés</label>
+                          <input type="number" className="form-control" value={set.reps} onChange={(e) => handleSetChange(exercise.id, setIndex, 'reps', e.target.value)} required />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: '0.8rem' }}>RPE (1-10)</label>
+                          <input type="number" className="form-control" min="1" max="10" value={set.rpe} onChange={(e) => handleSetChange(exercise.id, setIndex, 'rpe', e.target.value)} />
+                        </div>
+                        {exercise.sets.length > 1 && (
+                          <button type="button" className="btn btn-secondary" style={{ padding: '12px 15px', color: 'var(--primary)', borderColor: 'var(--primary)' }} onClick={() => handleRemoveSet(exercise.id, setIndex)}>
+                            <i className="fas fa-trash"></i>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    
+                    <button type="button" className="btn btn-secondary" style={{ width: '100%', marginTop: '10px', fontSize: '0.85rem' }} onClick={() => handleAddSet(exercise.id)}>
+                      + Új szett ehhez a gyakorlathoz
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+            <button type="button" onClick={handleAddExerciseBlock} style={{ width: '100%', padding: '15px', background: 'transparent', border: '2px dashed var(--primary)', color: 'var(--primary)', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', marginBottom: '20px' }}>
+              <i className="fas fa-plus-circle"></i> Még egy gyakorlat hozzáadása az edzésnaphoz
+            </button>
+
+            <button type="submit" className="btn btn-primary" style={{ width: '100%', fontSize: '1.1rem', padding: '15px' }}>
+              <i className="fas fa-save"></i> Teljes Edzésterv Mentése
             </button>
           </form>
         </div>
       </div>
+
     </div>
   );
 };
