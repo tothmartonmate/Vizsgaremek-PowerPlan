@@ -5,7 +5,7 @@ import './dashboard.css';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
 
-// GYAKORLAT ADATBÁZIS
+// GYAKORLAT ADATBÁZIS (TELJES)
 const EXERCISE_DB_WITH_VIDEOS = {
   'Mell': [
     { name: 'Fekvenyomás (Rúd)', video: 'https://www.youtube.com/embed/rT7DgCr-3pg', difficulty: 'intermediate' },
@@ -39,7 +39,7 @@ const EXERCISE_DB_WITH_VIDEOS = {
   ]
 };
 
-// ÉTELEK ADATBÁZIS
+// ÉTELEK ADATBÁZIS (TELJES)
 const FOOD_DB = {
   'Reggeli': [
     { name: 'Zabkása banánnal', calories: 350 },
@@ -88,7 +88,6 @@ const FOOD_DB = {
   ]
 };
 
-// EDZÉSTÍPUS SZŰRŐ
 const MUSCLE_FILTER = {
   'push': ['Mell', 'Váll', 'Tricepsz'],
   'pull': ['Hát', 'Bicepsz'],
@@ -217,6 +216,40 @@ const GymMap = () => {
   );
 };
 
+// TOAST KOMPONENS
+const Toast = ({ message, type, onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(() => onClose(), 2000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const getIcon = () => {
+    switch(type) {
+      case 'success': return 'fas fa-check-circle';
+      case 'error': return 'fas fa-exclamation-circle';
+      case 'warning': return 'fas fa-exclamation-triangle';
+      default: return 'fas fa-info-circle';
+    }
+  };
+
+  const getColor = () => {
+    switch(type) {
+      case 'success': return '#2a9d8f';
+      case 'error': return '#e63946';
+      case 'warning': return '#f4a261';
+      default: return '#457b9d';
+    }
+  };
+
+  return (
+    <div className="toast-notification" style={{ borderLeftColor: getColor() }}>
+      <i className={getIcon()} style={{ color: getColor() }}></i>
+      <span>{message}</span>
+      <button className="toast-close" onClick={onClose}><i className="fas fa-times"></i></button>
+    </div>
+  );
+};
+
 const Dashboard = ({ navigateTo, handleLogout }) => {
   const [currentSection, setCurrentSection] = useState('dashboard');
   const [sidebarActive, setSidebarActive] = useState(false);
@@ -224,12 +257,14 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
   const [workoutTime, setWorkoutTime] = useState(0);
   const [modalOpen, setModalOpen] = useState(null);
   const [selectedFood, setSelectedFood] = useState(null);
+  const [mealToDelete, setMealToDelete] = useState(null);
+  const [showDeleteMealModal, setShowDeleteMealModal] = useState(false);
   
   // Edzés részletek modalhoz
   const [selectedWorkout, setSelectedWorkout] = useState(null);
   const [showWorkoutDetailsModal, setShowWorkoutDetailsModal] = useState(false);
   
-  // Szerkesztéshez: tároljuk a szerkesztendő edzés ID-ját
+  // Szerkesztéshez
   const [editingWorkoutId, setEditingWorkoutId] = useState(null);
   
   // Sötét mód
@@ -237,6 +272,13 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
     const saved = localStorage.getItem('powerplan_dark_mode');
     return saved !== null ? saved === 'true' : false;
   });
+  
+  // Toast
+  const [toast, setToast] = useState(null);
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 2100);
+  };
   
   // Profil adatok
   const [profileImage, setProfileImage] = useState(() => {
@@ -248,9 +290,7 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
     email: '',
     height: '',
     weight: '',
-    birthDate: '',
-    phone: '',
-    location: ''
+    birthDate: ''
   });
   
   // Jelvények és rekordok
@@ -309,6 +349,7 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
       if (currentUser.id && token && currentUser.id !== 'demo-999') {
         loadUserData(currentUser.id, token);
         loadDashboardData(currentUser.id, token);
+        loadProfileImage(currentUser.id, token);
       }
     } else {
       if (navigateTo) navigateTo('home');
@@ -354,6 +395,21 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
     } catch (error) { console.error(error); }
   };
 
+  const loadProfileImage = async (userId, token) => {
+    try {
+      const response = await fetch(`http://localhost:5001/api/user-profile/${userId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.profileImage) {
+          setProfileImage(data.profileImage);
+          localStorage.setItem('powerplan_profile_image', data.profileImage);
+        }
+      }
+    } catch (error) { console.error(error); }
+  };
+
   const loadWeekWorkouts = async (date) => {
     const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
     const token = localStorage.getItem('powerplan_token');
@@ -386,7 +442,6 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
     finally { setLoadingWorkouts(false); }
   };
 
-  // Jelvények és rekordok számítása
   const calculateBadgesAndRecords = (workouts) => {
     const newBadges = [];
     const newAchievements = [];
@@ -448,37 +503,82 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
     }
   }, [selectedDate, currentSection]);
 
-  // Profilkép feltöltés
-  const handleImageUpload = (e) => {
+  // Profilkép feltöltés (adatbázisba)
+  const handleImageUpload = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setProfileImage(reader.result);
-        localStorage.setItem('powerplan_profile_image', reader.result);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+    if (!currentUser.id || currentUser.id === 'demo-999') {
+      showToast('Demó módban nem módosíthatod a profilképet!', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64 = reader.result;
+      setProfileImage(base64);
+      localStorage.setItem('powerplan_profile_image', base64);
+      
+      try {
+        const response = await fetch('http://localhost:5001/api/upload-profile-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ userId: currentUser.id, imageBase64: base64 })
+        });
+        if (response.ok) {
+          showToast('Profilkép sikeresen frissítve!', 'success');
+        } else {
+          showToast('Hiba a kép mentésekor!', 'error');
+        }
+      } catch (error) {
+        showToast('Hálózati hiba!', 'error');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Profil mentés (backend)
+  const handleProfileSave = async () => {
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+    if (!currentUser.id || currentUser.id === 'demo-999') {
+      showToast('Demó módban nem menthető!', 'error');
+      return;
+    }
+    try {
+      const response = await fetch('http://localhost:5001/api/update-profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          userId: currentUser.id,
+          fullName: editFormData.fullName,
+          email: editFormData.email,
+          height: editFormData.height,
+          weight: editFormData.weight,
+          birthDate: editFormData.birthDate
+        })
+      });
+      if (response.ok) {
+        showToast('Profil frissítve!', 'success');
+        setEditingProfile(false);
+        const savedUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+        savedUser.full_name = editFormData.fullName;
+        savedUser.email = editFormData.email;
+        localStorage.setItem('powerplan_current_user', JSON.stringify(savedUser));
+        setUserData(prev => ({
+          ...prev,
+          personalInfo: { ...prev.personalInfo, height: editFormData.height, weight: editFormData.weight, birthDate: editFormData.birthDate }
+        }));
+      } else {
+        showToast('Hiba a mentéskor!', 'error');
+      }
+    } catch (error) {
+      showToast('Hálózati hiba!', 'error');
     }
   };
 
-  // Profil mentés
-  const handleProfileSave = () => {
-    setUserData(prev => ({
-      ...prev,
-      personalInfo: {
-        ...prev.personalInfo,
-        height: editFormData.height,
-        weight: editFormData.weight,
-        birthDate: editFormData.birthDate
-      },
-      phone: editFormData.phone,
-      location: editFormData.location
-    }));
-    setEditingProfile(false);
-    alert('Profil adatok mentve!');
-  };
-
-  // Kor számítás
   const calculateAge = (birthDate) => {
     if (!birthDate) return '-';
     const today = new Date();
@@ -494,7 +594,7 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
     const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
     const token = localStorage.getItem('powerplan_token');
     if (!currentUser.id || currentUser.id === 'demo-999') {
-      alert('Demó módban az adat mentése nem elérhető.');
+      showToast('Demó módban az adat mentése nem elérhető.', 'error');
       return;
     }
 
@@ -513,17 +613,52 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
         body: JSON.stringify(mealData) 
       });
       if (response.ok) {
-        alert('Étkezés naplózva!'); 
+        showToast('Étkezés naplózva!', 'success');
         closeModal(); 
         loadDashboardData(currentUser.id, token);
         setSelectedFood(null);
         document.getElementById('mealLogForm')?.reset();
       }
     } catch (error) { 
-      alert('Hiba a mentéskor!'); 
+      showToast('Hiba a mentéskor!', 'error');
     }
   };
 
+  const openDeleteMealModal = (meal) => {
+    setMealToDelete(meal);
+    setShowDeleteMealModal(true);
+  };
+
+  const closeDeleteMealModal = () => {
+    setMealToDelete(null);
+    setShowDeleteMealModal(false);
+  };
+
+  const deleteMeal = async (mealId) => {
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+    if (!currentUser.id || currentUser.id === 'demo-999') {
+      showToast('Demó módban nem törölhetsz!', 'error');
+      return;
+    }
+    try {
+      const response = await fetch(`http://localhost:5001/api/meals/${mealId}?userId=${currentUser.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        showToast('Étkezés törölve!', 'success');
+        closeDeleteMealModal();
+        loadDashboardData(currentUser.id, token);
+      } else {
+        showToast('Hiba a törléskor!', 'error');
+      }
+    } catch (error) {
+      showToast('Hálózati hiba!', 'error');
+    }
+  };
+
+  // GYAKORLATKEZELŐ FÜGGVÉNYEK (ezek hiányoztak korábban!)
   const handleAddExerciseBlock = () => {
     setExercisesList([...exercisesList, { id: Date.now(), muscleGroup: '', name: '', sets: [{ weight: '', reps: '', rpe: '' }] }]);
   };
@@ -571,24 +706,23 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
     }));
   };
 
-  // Új edzés mentése (POST) vagy meglévő szerkesztése (PUT)
   const handleWorkoutSubmit = async (e) => {
     e.preventDefault();
     const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
     const token = localStorage.getItem('powerplan_token');
     
     if (!currentUser.id || currentUser.id === 'demo-999') {
-      alert('Demó módban a mentés nem elérhető!');
+      showToast('Demó módban a mentés nem elérhető!', 'error');
       return;
     }
     if (!workoutFormDetails.type) {
-      alert('Kérlek válassz edzés típust!');
+      showToast('Kérlek válassz edzés típust!', 'warning');
       return;
     }
     
     const isValid = exercisesList.every(ex => ex.muscleGroup && ex.name && ex.sets.length > 0);
     if (!isValid) {
-      alert('Kérlek válassz izomcsoportot és gyakorlatot minden blokkban!');
+      showToast('Kérlek válassz izomcsoportot és gyakorlatot minden blokkban!', 'warning');
       return;
     }
 
@@ -613,7 +747,7 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
         body: JSON.stringify(payload)
       });
       if (response.ok) {
-        alert(editingWorkoutId ? 'Edzés frissítve!' : 'Edzésterv elmentve!');
+        showToast(editingWorkoutId ? 'Edzés frissítve!' : 'Edzésterv elmentve!', 'success');
         closeModal();
         setEditingWorkoutId(null);
         loadDashboardData(currentUser.id, token);
@@ -621,10 +755,10 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
         setWorkoutFormDetails({ name: '', type: '', day: '' });
         setExercisesList([{ id: 1, muscleGroup: '', name: '', sets: [{ weight: '', reps: '', rpe: '' }] }]);
       } else { 
-        alert('Hiba a mentés során.'); 
+        showToast('Hiba a mentés során.', 'error');
       }
     } catch (error) { 
-      alert('Hálózat hiba!'); 
+      showToast('Hálózat hiba!', 'error');
     }
   };
 
@@ -634,7 +768,6 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
     return weekWorkouts.filter(w => w.scheduled_day === targetDay);
   };
 
-  // Edzés részletek megjelenítése
   const handleWorkoutClick = (workout) => {
     setSelectedWorkout(workout);
     setShowWorkoutDetailsModal(true);
@@ -645,16 +778,13 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
     setSelectedWorkout(null);
   };
 
-  // Szerkesztés indítása: bezárjuk a részletek modalt, betöltjük az adatokat a szerkesztő űrlapba, és megnyitjuk a szerkesztő modalt
   const startEditWorkout = () => {
     if (!selectedWorkout) return;
-    // Betöltjük a kiválasztott edzés adatait a szerkesztő űrlapba
     setWorkoutFormDetails({
       name: selectedWorkout.name,
       type: selectedWorkout.workout_type,
       day: selectedWorkout.scheduled_day
     });
-    // Átalakítjuk a gyakorlatokat a szerkesztő formátumára
     const exercises = selectedWorkout.exercises.map((ex, idx) => ({
       id: idx + 1,
       muscleGroup: ex.muscle,
@@ -663,15 +793,22 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
     }));
     setExercisesList(exercises);
     setEditingWorkoutId(selectedWorkout.id);
-    // Bezárjuk a részletek modalt
     setShowWorkoutDetailsModal(false);
-    // Megnyitjuk a szerkesztő modalt
     setModalOpen('workoutLog');
   };
 
   const navigateToSection = (section) => { 
     setCurrentSection(section); 
-    if (window.innerWidth <= 992) setSidebarActive(false); 
+    if (window.innerWidth <= 992) setSidebarActive(false);
+    if (section === 'profile') {
+      const token = localStorage.getItem('powerplan_token');
+      const savedUser = localStorage.getItem('powerplan_current_user');
+      const currentUser = savedUser ? JSON.parse(savedUser) : null;
+      if (currentUser && currentUser.id && token && currentUser.id !== 'demo-999') {
+        loadUserData(currentUser.id, token);
+        loadProfileImage(currentUser.id, token);
+      }
+    }
   };
   
   const updateDateTime = () => {
@@ -708,14 +845,13 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
   const stopWorkout = () => { 
     setWorkoutActive(false); 
     setWorkoutTime(0); 
-    alert('Edzés befejezve!'); 
+    showToast('Edzés befejezve!', 'success');
   };
   const toggleSidebar = () => setSidebarActive(!sidebarActive);
   const closeModal = () => { 
     setModalOpen(null); 
     setSelectedFood(null);
     setEditingWorkoutId(null);
-    // űrlap reset
     setWorkoutFormDetails({ name: '', type: '', day: '' });
     setExercisesList([{ id: 1, muscleGroup: '', name: '', sets: [{ weight: '', reps: '', rpe: '' }] }]);
   };
@@ -729,7 +865,8 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
   const logout = () => { 
     if (window.confirm('Biztosan ki szeretnél jelentkezni?')) { 
       localStorage.clear(); 
-      if (navigateTo) navigateTo('home'); 
+      if (handleLogout) handleLogout();
+      else if (navigateTo) navigateTo('home'); 
     } 
   };
 
@@ -957,8 +1094,13 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
             <div className="meal-plan">
               {nutritionData.todayMeals?.map((meal, i) => (
                 <div key={i} className="meal-card">
-                  <div className="meal-time">{meal.meal_type === 'breakfast' ? 'Reggeli' : meal.meal_type === 'lunch' ? 'Ebéd' : meal.meal_type === 'dinner' ? 'Vacsora' : 'Snack'}</div>
-                  <h4>{meal.name}</h4>
+                  <div className="meal-card-header">
+                    <span className="meal-time">{meal.meal_type === 'breakfast' ? 'Reggeli' : meal.meal_type === 'lunch' ? 'Ebéd' : meal.meal_type === 'dinner' ? 'Vacsora' : 'Snack'}</span>
+                  </div>
+                  <div className="meal-card-title">
+                    <h4>{meal.name}</h4>
+                    <button className="delete-meal-btn" onClick={() => openDeleteMealModal(meal)} title="Törlés">🗑️</button>
+                  </div>
                   <div className="macros">
                     <div className="macro">
                       <div className="macro-value">{meal.calories}</div>
@@ -1114,16 +1256,6 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
                   <input type="date" className="form-control" value={editFormData.birthDate} 
                     onChange={(e) => setEditFormData({...editFormData, birthDate: e.target.value})} />
                 </div>
-                <div className="form-group">
-                  <label>Telefonszám</label>
-                  <input type="tel" className="form-control" value={editFormData.phone} 
-                    onChange={(e) => setEditFormData({...editFormData, phone: e.target.value})} />
-                </div>
-                <div className="form-group">
-                  <label>Lakhely</label>
-                  <input type="text" className="form-control" value={editFormData.location} 
-                    onChange={(e) => setEditFormData({...editFormData, location: e.target.value})} />
-                </div>
                 <button className="btn btn-primary" onClick={handleProfileSave}>
                   <i className="fas fa-save"></i> Mentés
                 </button>
@@ -1140,8 +1272,6 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
                   <div className="info-item"><label>Súly</label><p>{editFormData.weight || '-'} kg</p></div>
                   <div className="info-item"><label>Születési dátum</label><p>{editFormData.birthDate ? new Date(editFormData.birthDate).toLocaleDateString('hu-HU') : '-'}</p></div>
                   <div className="info-item"><label>Kor</label><p>{calculateAge(editFormData.birthDate)} év</p></div>
-                  <div className="info-item"><label>Telefonszám</label><p>{editFormData.phone || '-'}</p></div>
-                  <div className="info-item"><label>Lakhely</label><p>{editFormData.location || '-'}</p></div>
                 </div>
               </div>
             )}
@@ -1209,6 +1339,24 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
               <button type="submit" className="btn btn-primary">Naplózás</button>
             </div>
           </form>
+        </div>
+      </div>
+
+      {/* MODAL: Étkezés törlés megerősítés */}
+      <div className={`modal ${showDeleteMealModal ? 'active' : ''}`} onClick={(e) => {
+        if (e.target.className === 'modal active') closeDeleteMealModal();
+      }}>
+        <div className="modal-content">
+          <div className="modal-header">
+            <h2><i className="fas fa-trash-alt"></i> Étkezés törlése</h2>
+            <button className="modal-close" onClick={closeDeleteMealModal}><i className="fas fa-times"></i></button>
+          </div>
+          <p>Biztosan törölni szeretnéd ezt az étkezést?</p>
+          <p><strong>{mealToDelete?.name || 'Ismeretlen étel'}</strong> - {mealToDelete?.calories || ''} kcal</p>
+          <div className="modal-buttons">
+            <button type="button" className="btn btn-secondary" onClick={closeDeleteMealModal}>Mégse</button>
+            <button type="button" className="btn btn-primary" onClick={() => deleteMeal(mealToDelete?.id)}>Törlés</button>
+          </div>
         </div>
       </div>
 
@@ -1393,6 +1541,13 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
           </form>
         </div>
       </div>
+
+      {/* Toast értesítő */}
+      {toast && (
+        <div className="toast-container">
+          <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
+        </div>
+      )}
     </div>
   );
 };

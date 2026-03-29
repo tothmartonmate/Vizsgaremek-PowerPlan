@@ -324,3 +324,76 @@ footer {
     padding: 1.5rem;
   }
 }
+
+/* Toast stílusok (ugyanaz, mint a dashboardban) */
+.toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.toast-notification {
+  background: white;
+  color: #1a1a2e;
+  padding: 12px 20px;
+  border-radius: 12px;
+  box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 250px;
+  animation: slideIn 0.3s ease;
+  border-left: 4px solid;
+}
+
+.toast-notification i {
+  font-size: 1.2rem;
+}
+
+.toast-notification span {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+.toast-close {
+  background: none;
+  border: none;
+  color: #6c757d;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: color 0.2s;
+}
+
+.toast-close:hover {
+  color: #e63946;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Sötét mód támogatás a toast-hoz (ha a body dark-mode) */
+body.dark-mode .toast-notification {
+  background: #1e1e2e;
+  color: #ffffff;
+  box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+}
+
+body.dark-mode .toast-close {
+  color: #a0a0a0;
+}
+
+body.dark-mode .toast-close:hover {
+  color: #e63946;
+}

@@ -6,7 +6,7 @@ require('dotenv').config();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '20mb' }));
 
 const pool = mysql.createPool({
     host: process.env.DB_HOST || 'db',
@@ -39,16 +39,24 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
     try {
-        const [users] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+        const [users] = await pool.query('SELECT id, full_name, email, password_hash, profile_image FROM users WHERE email = ?', [email]);
         if (users.length === 0) return res.status(401).json({ error: 'Hibás adatok!' });
         const user = users[0];
         const validPassword = await bcrypt.compare(password, user.password_hash);
         if (!validPassword) return res.status(401).json({ error: 'Hibás adatok!' });
-        res.status(200).json({ success: true, user: { id: user.id, full_name: user.full_name, email: user.email } });
-    } catch (error) { res.status(500).json({ error: 'Szerverhiba!' }); }
+        const token = Buffer.from(`${user.id}-${Date.now()}`).toString('base64');
+        res.status(200).json({ 
+            success: true, 
+            user: { id: user.id, full_name: user.full_name, email: user.email, profile_image: user.profile_image },
+            token: token
+        });
+    } catch (error) { 
+        console.error(error);
+        res.status(500).json({ error: 'Szerverhiba!' }); 
+    }
 });
 
-// -------------------- KÉRDŐÍV MENTÉSE --------------------
+// -------------------- KÉRDŐÍV MENTÉSE (POST) --------------------
 app.post('/api/questionnaire', async (req, res) => {
     const { userId, questionnaire: q } = req.body;
     if (!userId || !q) return res.status(400).json({ error: 'Hiányzó adatok!' });
@@ -60,7 +68,11 @@ app.post('/api/questionnaire', async (req, res) => {
                 sleep_hours, stress_level, sitting_time, diet_types, allergies, diet_control_level, wants_diet_recommendations,
                 training_location, preferred_workout_duration_mins, preferred_weekly_frequency, physique_satisfaction, energy_level, obstacles, additional_comments
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE gender=VALUES(gender), height_cm=VALUES(height_cm), weight_kg=VALUES(weight_kg), main_goal=VALUES(main_goal), allergies=VALUES(allergies)
+            ON DUPLICATE KEY UPDATE 
+                gender=VALUES(gender), height_cm=VALUES(height_cm), weight_kg=VALUES(weight_kg), 
+                birth_date=VALUES(birth_date), main_goal=VALUES(main_goal), allergies=VALUES(allergies),
+                activity_level=VALUES(activity_level), experience_level=VALUES(experience_level),
+                weekly_training_days=VALUES(weekly_training_days)
         `;
         const values = [
             userId, q.personalInfo.gender, q.personalInfo.height, q.personalInfo.weight, q.personalInfo.birthDate, q.personalInfo.activity,
@@ -74,7 +86,7 @@ app.post('/api/questionnaire', async (req, res) => {
         ];
         await pool.query(query, values);
         res.status(200).json({ success: true });
-    } catch (error) { res.status(500).json({ error: 'Szerverhiba!' }); }
+    } catch (error) { console.error(error); res.status(500).json({ error: 'Szerverhiba!' }); }
 });
 
 // -------------------- KÉRDŐÍV LEKÉRÉSE --------------------
@@ -91,7 +103,7 @@ app.get('/api/questionnaire/:userId', async (req, res) => {
 app.get('/api/dashboard/:userId', async (req, res) => {
     const userId = req.params.userId;
     try {
-        const [meals] = await pool.query(`SELECT meal_type, food_name as name, description, calories, protein_g as protein, carbs_g as carbs, fat_g as fat, DATE_FORMAT(consumed_date, '%H:%i') as time FROM nutrition_logs WHERE user_id = ? AND consumed_date = CURDATE()`, [userId]);
+        const [meals] = await pool.query(`SELECT id, meal_type, food_name as name, description, calories, protein_g as protein, carbs_g as carbs, fat_g as fat, DATE_FORMAT(consumed_date, '%H:%i') as time FROM nutrition_logs WHERE user_id = ? AND consumed_date = CURDATE() ORDER BY created_at DESC`, [userId]);
         const [workoutRows] = await pool.query(
             `SELECT w.id as workout_id, w.name as workout_name, w.workout_type, w.scheduled_day, e.id as ex_id, e.muscle_group, e.exercise_name, e.sets_data 
              FROM workouts w 
@@ -139,7 +151,7 @@ app.get('/api/dashboard/:userId', async (req, res) => {
             workout: { weeklyPlan: Object.values(groupedWorkouts), stats: { totalWorkouts: Object.keys(groupedWorkouts).length, completedWorkouts: 0 }, aiRecommendation: recommendedWorkoutText },
             challenges: { level: userStats[0]?.current_level || 1, points: userStats[0]?.total_points || 0 }
         });
-    } catch (error) { res.status(500).json({ success: false }); }
+    } catch (error) { console.error(error); res.status(500).json({ success: false }); }
 });
 
 // -------------------- ÉTKEZÉS NAPLÓZÁSA --------------------
@@ -150,6 +162,45 @@ app.post('/api/meals', async (req, res) => {
         await pool.query(`INSERT INTO nutrition_logs (user_id, meal_type, food_name, description, calories, consumed_date) VALUES (?, ?, ?, ?, ?, CURDATE())`, [userId, mealType, foodName, description, calories]);
         res.status(201).json({ success: true });
     } catch (error) { res.status(500).json({ error: 'Szerverhiba!' }); }
+});
+
+// -------------------- ÉTKEZÉS TÖRLÉSE --------------------
+app.delete('/api/meals/:mealId', async (req, res) => {
+    const { mealId } = req.params;
+    const { userId } = req.query; // vagy a body-ból, de egyszerűbb query param
+    if (!mealId) return res.status(400).json({ error: 'Hiányzó azonosító!' });
+    try {
+        await pool.query('DELETE FROM nutrition_logs WHERE id = ?', [mealId]);
+        res.json({ success: true, message: 'Étkezés törölve!' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Szerverhiba!' });
+    }
+});
+
+// -------------------- PROFIL FRISSÍTÉSE (név, email, magasság, súly, születési dátum) --------------------
+app.put('/api/update-profile', async (req, res) => {
+    const { userId, fullName, email, height, weight, birthDate } = req.body;
+    if (!userId) return res.status(400).json({ error: 'Hiányzó felhasználó azonosító!' });
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        // Frissítjük a users táblában a nevet és emailt
+        await connection.query('UPDATE users SET full_name = ?, email = ? WHERE id = ?', [fullName, email, userId]);
+        // Frissítjük a kérdőív táblában a magasságot, súlyt, születési dátumot
+        await connection.query(
+            `UPDATE user_questionnaires SET height_cm = ?, weight_kg = ?, birth_date = ? WHERE user_id = ?`,
+            [height, weight, birthDate, userId]
+        );
+        await connection.commit();
+        res.json({ success: true, message: 'Profil frissítve!' });
+    } catch (error) {
+        await connection.rollback();
+        console.error(error);
+        res.status(500).json({ error: 'Szerverhiba!' });
+    } finally {
+        connection.release();
+    }
 });
 
 // -------------------- EDZÉS MENTÉSE --------------------
@@ -231,6 +282,7 @@ app.get('/api/workouts/:userId/week', async (req, res) => {
     }
 });
 
+// -------------------- EDZÉS FRISSÍTÉSE (szerkesztés) --------------------
 app.put('/api/workouts/:workoutId', async (req, res) => {
     const { workoutId } = req.params;
     const { name, workoutType, scheduledDay, exercises } = req.body;
@@ -253,6 +305,38 @@ app.put('/api/workouts/:workoutId', async (req, res) => {
         res.status(500).json({ error: 'Szerverhiba frissítés közben!' });
     } finally {
         connection.release();
+    }
+});
+
+// -------------------- PROFILKÉP FELTÖLTÉSE --------------------
+app.post('/api/upload-profile-image', async (req, res) => {
+    const { userId, imageBase64 } = req.body;
+    if (!userId || !imageBase64) {
+        return res.status(400).json({ error: 'Hiányzó adatok!' });
+    }
+    try {
+        // Ellenőrizzük, hogy a profile_image oszlop létezik-e
+        const [columns] = await pool.query(`SHOW COLUMNS FROM users LIKE 'profile_image'`);
+        if (columns.length === 0) {
+            await pool.query(`ALTER TABLE users ADD COLUMN profile_image LONGTEXT NULL`);
+            console.log('✅ Hozzáadva a profile_image oszlop a users táblához');
+        }
+        await pool.query('UPDATE users SET profile_image = ? WHERE id = ?', [imageBase64, userId]);
+        res.json({ success: true, message: 'Profilkép elmentve!' });
+    } catch (error) {
+        console.error('Hiba a profil kép mentésekor:', error);
+        res.status(500).json({ error: 'Szerverhiba a kép mentésekor!' });
+    }
+});
+
+// -------------------- PROFILKÉP LEKÉRÉSE --------------------
+app.get('/api/user-profile/:userId', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT profile_image FROM users WHERE id = ?', [req.params.userId]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Felhasználó nem található' });
+        res.json({ success: true, profileImage: rows[0].profile_image });
+    } catch (error) {
+        res.status(500).json({ error: 'Szerverhiba!' });
     }
 });
 
