@@ -85,6 +85,24 @@ app.post('/api/questionnaire', async (req, res) => {
             q.selfAssessment.satisfaction, q.selfAssessment.energy, JSON.stringify(q.selfAssessment.obstacles || []), q.selfAssessment.comments
         ];
         await pool.query(query, values);
+
+        // Súlynapló - a questionnaire kitöltéskor rögzítjük az inicial súlyt
+        const rawWeight = q.personalInfo.weight;
+        const weightValue = rawWeight !== undefined && rawWeight !== null ? parseFloat(String(rawWeight).replace(',', '.')) : NaN;
+        if (!Number.isNaN(weightValue)) {
+            const [existingLogs] = await pool.query(
+                'SELECT COUNT(*) as cnt FROM weight_logs WHERE user_id = ?',
+                [userId]
+            );
+            if (existingLogs[0].cnt === 0) {
+                // Első súlynapló - az adott dátummal rögzítjük
+                await pool.query(
+                    'INSERT INTO weight_logs (user_id, weight_kg, logged_at) VALUES (?, ?, CURDATE())',
+                    [userId, weightValue]
+                );
+            }
+        }
+
         res.status(200).json({ success: true });
     } catch (error) { console.error(error); res.status(500).json({ error: 'Szerverhiba!' }); }
 });
@@ -145,11 +163,17 @@ app.get('/api/dashboard/:userId', async (req, res) => {
                 recommendedMeals.push({ name: '🌟 Laktózmentes Turmix', cals: 200, desc: 'Laktózérzékenyeknek!' });
             }
         }
+        const [weightRows] = await pool.query(
+            'SELECT weight_kg as weight, logged_at as date FROM weight_logs WHERE user_id = ? ORDER BY logged_at ASC, created_at ASC',
+            [userId]
+        );
+
         res.json({
             success: true,
             nutrition: { todayMeals: meals, dailyCalories: meals.reduce((sum, meal) => sum + meal.calories, 0), macros: { protein: 0, carbs: 0, fat: 0 }, recommendations: recommendedMeals },
             workout: { weeklyPlan: Object.values(groupedWorkouts), stats: { totalWorkouts: Object.keys(groupedWorkouts).length, completedWorkouts: 0 }, aiRecommendation: recommendedWorkoutText },
-            challenges: { level: userStats[0]?.current_level || 1, points: userStats[0]?.total_points || 0 }
+            challenges: { level: userStats[0]?.current_level || 1, points: userStats[0]?.total_points || 0 },
+            weightHistory: weightRows
         });
     } catch (error) { console.error(error); res.status(500).json({ success: false }); }
 });
@@ -242,6 +266,37 @@ app.put('/api/update-profile', async (req, res) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
+
+        const [existingRows] = await connection.query('SELECT weight_kg FROM user_questionnaires WHERE user_id = ?', [userId]);
+        const previousWeight = existingRows.length ? parseFloat(String(existingRows[0].weight_kg).replace(',', '.')) : null;
+        
+        const newWeight = weight !== undefined && weight !== null ? parseFloat(String(weight).replace(',', '.')) : NaN;
+        
+        // Ha az előző súly eltér az újból, és az előző még nincs rögzítve, rögzítjük azt egy nappal korábbra
+        if (previousWeight !== null && !Number.isNaN(previousWeight) && previousWeight !== newWeight) {
+            const [lastLog] = await connection.query(
+                'SELECT weight_kg FROM weight_logs WHERE user_id = ? AND weight_kg = ? LIMIT 1',
+                [userId, previousWeight]
+            );
+            if (lastLog.length === 0) {
+                const previousDate = new Date();
+                previousDate.setDate(previousDate.getDate() - 1);
+                const formattedPreviousDate = previousDate.toISOString().split('T')[0];
+                await connection.query(
+                    'INSERT INTO weight_logs (user_id, weight_kg, logged_at) VALUES (?, ?, ?)',
+                    [userId, previousWeight, formattedPreviousDate]
+                );
+            }
+        }
+        
+        // Az új súly rögzítése mai napra
+        if (!Number.isNaN(newWeight) && previousWeight !== newWeight) {
+            await connection.query(
+                'INSERT INTO weight_logs (user_id, weight_kg, logged_at) VALUES (?, ?, CURDATE())',
+                [userId, newWeight]
+            );
+        }
+
         // Frissítjük a users táblában a nevet és emailt
         await connection.query('UPDATE users SET full_name = ?, email = ? WHERE id = ?', [fullName, email, userId]);
         // Frissítjük a kérdőív táblában a magasságot, súlyt, születési dátumot

@@ -309,6 +309,7 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
   const [userData, setUserData] = useState({});
   const [workoutData, setWorkoutData] = useState({ weeklyPlan: [], stats: {}, aiRecommendation: '' });
   const [nutritionData, setNutritionData] = useState({ todayMeals: [], dailyCalories: 0 });
+  const [weightHistory, setWeightHistory] = useState([]);
   
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [weekWorkouts, setWeekWorkouts] = useState([]);
@@ -411,6 +412,7 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
         if (data.success) {
           setNutritionData(data.nutrition);
           setWorkoutData(data.workout);
+          setWeightHistory(data.weightHistory || []);
         }
       }
     } catch (error) { console.error(error); }
@@ -761,6 +763,8 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
           ...prev,
           personalInfo: { ...prev.personalInfo, height: editFormData.height, weight: editFormData.weight, birthDate: editFormData.birthDate }
         }));
+        // Frissítjük a dashboard adatokat, hogy az új súlynapló megjelenjen a grafikonon
+        loadDashboardData(currentUser.id, token);
       } else {
         showToast('Hiba a mentéskor!', 'error');
       }
@@ -1062,11 +1066,21 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
   };
 
   const userWeight = userData.personalInfo?.weight ? parseFloat(userData.personalInfo.weight) : 0;
+  const weightHistoryData = weightHistory.length > 0 ? weightHistory : [];
+  const weightChartLabels = weightHistoryData.length > 0
+    ? weightHistoryData.map(item => new Date(item.date).toLocaleDateString('hu-HU'))
+    : ['Indulás', '1 hete', 'Ma'];
+  const weightChartValues = weightHistoryData.length > 0
+    ? weightHistoryData.map(item => parseFloat(item.weight))
+    : userWeight
+      ? [userWeight + 1, userWeight + 0.5, userWeight]
+      : [80, 79, 78];
+
   const weightChartData = {
-    labels: ['Indulás', '1 hete', 'Ma'],
+    labels: weightChartLabels,
     datasets: [{ 
       label: 'Testsúly (kg)', 
-      data: userWeight ? [userWeight+1, userWeight+0.5, userWeight] : [80, 79, 78], 
+      data: weightChartValues,
       borderColor: '#e63946', 
       backgroundColor: 'rgba(230, 57, 70, 0.1)', 
       fill: true, 
