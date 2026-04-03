@@ -250,7 +250,7 @@ const Toast = ({ message, type, onClose }) => {
   );
 };
 
-const Dashboard = ({ navigateTo, handleLogout }) => {
+const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkMode }) => {
   const [currentSection, setCurrentSection] = useState('dashboard');
   const [sidebarActive, setSidebarActive] = useState(false);
   const [workoutActive, setWorkoutActive] = useState(false);
@@ -269,12 +269,6 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
   
   // Fejlődés fotók
   const [progressPhotos, setProgressPhotos] = useState([]);
-  
-  // Sötét mód
-  const [darkMode, setDarkMode] = useState(() => {
-    const saved = localStorage.getItem('powerplan_dark_mode');
-    return saved !== null ? saved === 'true' : false;
-  });
   
   // Toast
   const [toast, setToast] = useState(null);
@@ -319,17 +313,6 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
   const [exercisesList, setExercisesList] = useState([
     { id: 1, muscleGroup: '', name: '', sets: [{ weight: '', reps: '', rpe: '' }] }
   ]);
-
-  // Dark mode alkalmazása
-  useEffect(() => {
-    if (darkMode) {
-      document.body.classList.add('dark-mode');
-      localStorage.setItem('powerplan_dark_mode', 'true');
-    } else {
-      document.body.classList.remove('dark-mode');
-      localStorage.setItem('powerplan_dark_mode', 'false');
-    }
-  }, [darkMode]);
 
   // Adatok betöltése
   useEffect(() => {
@@ -481,7 +464,6 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
       if (response.ok) {
         const data = await response.json();
         setWeekWorkouts(data.workouts || []);
-        calculateBadgesAndRecords(data.workouts || []);
       }
     } catch (error) { console.error(error); } 
     finally { setLoadingWorkouts(false); }
@@ -494,15 +476,15 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
     const weeklyWorkoutCount = workouts.length;
     if (weeklyWorkoutCount >= 5) {
       newBadges.push({ name: 'Edzésőrült', icon: 'fa-fire', color: '#e63946', description: 'Heti 5+ edzés teljesítve!' });
-      newAchievements.push('🏆 Új jelvény: Edzésőrült! (Heti 5+ edzés)');
+      newAchievements.push('🏆 Jelvény megszerezve: Edzésőrült (Heti 5+ edzés)');
     } else if (weeklyWorkoutCount >= 3) {
-      newBadges.push({ name: 'Kitartó', icon: 'fa-heart', color: '#2a9d8f', description: 'Heti 3+ edzés teljesítve!' });
-      newAchievements.push('⭐ Új jelvény: Kitartó! (Heti 3+ edzés)');
+      newBadges.push({ name: 'Kitartó', emoji: '💪', color: '#2a9d8f', description: 'Heti 3+ edzés teljesítve!' });
+      newAchievements.push('⭐ Jelvény megszerezve: Kitartó (Heti 3+ edzés)');
     }
     
-    let maxBench = personalRecords.benchPress;
-    let maxSquat = personalRecords.squat;
-    let maxDeadlift = personalRecords.deadlift;
+    let maxBench = 0;
+    let maxSquat = 0;
+    let maxDeadlift = 0;
     
     workouts.forEach(workout => {
       workout.exercises?.forEach(ex => {
@@ -510,37 +492,61 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
         
         if (ex.name?.includes('Fekvenyomás') && maxWeight > maxBench) {
           maxBench = maxWeight;
-          newAchievements.push(`🎉 ÚJ REKORD! Fekvenyomás: ${maxWeight} kg`);
         }
         if (ex.name?.includes('Guggolás') && maxWeight > maxSquat) {
           maxSquat = maxWeight;
-          newAchievements.push(`🎉 ÚJ REKORD! Guggolás: ${maxWeight} kg`);
         }
         if (ex.name?.includes('Felhúzás') && maxWeight > maxDeadlift) {
           maxDeadlift = maxWeight;
-          newAchievements.push(`🎉 ÚJ REKORD! Felhúzás: ${maxWeight} kg`);
         }
       });
     });
+
+    if (maxBench > 0 || maxSquat > 0 || maxDeadlift > 0) {
+      newBadges.push({ name: 'Rekorddöntő', icon: 'fa-chart-line', color: '#f4a261', description: 'Új rekord beállítva!' });
+    }
+
+    if (maxBench > 0) newAchievements.push(`🎉 Fekvenyomás rekord: ${maxBench} kg`);
+    if (maxSquat > 0) newAchievements.push(`🎉 Guggolás rekord: ${maxSquat} kg`);
+    if (maxDeadlift > 0) newAchievements.push(`🎉 Felhúzás rekord: ${maxDeadlift} kg`);
     
     setPersonalRecords({ benchPress: maxBench, squat: maxSquat, deadlift: maxDeadlift });
     setBadges(newBadges);
     setAchievements(newAchievements);
     
+    const dayToIndex = {
+      monday: 0,
+      tuesday: 1,
+      wednesday: 2,
+      thursday: 3,
+      friday: 4,
+      saturday: 5,
+      sunday: 6
+    };
+
+    const scheduledWorkoutDays = new Set(
+      workouts
+        .map((workout) => dayToIndex[workout.day || workout.scheduled_day])
+        .filter((dayIndex) => dayIndex !== undefined)
+    );
+
+    const now = new Date();
+    const todayIndex = now.getDay() === 0 ? 6 : now.getDay() - 1;
+
     let streak = 0;
-    const today = new Date();
-    for (let i = 0; i < 7; i++) {
-      const checkDate = new Date(today);
-      checkDate.setDate(today.getDate() - i);
-      const hasWorkout = workouts.some(w => {
-        const workoutDate = new Date(w.created_at);
-        return workoutDate.toDateString() === checkDate.toDateString();
-      });
-      if (hasWorkout) streak++;
-      else break;
+    for (let dayIndex = todayIndex; dayIndex >= 0; dayIndex--) {
+      if (!scheduledWorkoutDays.has(dayIndex)) {
+        break;
+      }
+      streak++;
     }
+
     setWorkoutStreak(streak);
   };
+
+  useEffect(() => {
+    calculateBadgesAndRecords(workoutData.weeklyPlan || []);
+  }, [workoutData.weeklyPlan]);
 
   useEffect(() => {
     if (currentSection === 'workout-plan') {
@@ -1058,11 +1064,9 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
     setModalOpen('workoutLog');
   };
   const logout = () => { 
-    if (window.confirm('Biztosan ki szeretnél jelentkezni?')) { 
-      localStorage.clear(); 
-      if (handleLogout) handleLogout();
-      else if (navigateTo) navigateTo('home'); 
-    } 
+    if (requestLogout) requestLogout();
+    else if (handleLogout) handleLogout();
+    else if (navigateTo) navigateTo('home');
   };
 
   const userWeight = userData.personalInfo?.weight ? parseFloat(userData.personalInfo.weight) : 0;
@@ -1088,16 +1092,55 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
     }]
   };
 
-  const workoutMinutes = [0, 0, 0, 0, 0, 0, 0];
+  const workoutDayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const workoutsByDay = workoutDayOrder.map((day) =>
+    (workoutData.weeklyPlan || []).filter((workout) => (workout.day || workout.scheduled_day) === day)
+  );
+  const workoutFrequency = workoutDayOrder.map((day) =>
+    (workoutData.weeklyPlan || []).filter((workout) => (workout.day || workout.scheduled_day) === day).length
+  );
+
   const workoutChartData = {
     labels: ['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'],
-    datasets: [{ data: workoutMinutes, backgroundColor: '#e63946' }]
+    datasets: [{ 
+      label: 'Edzések száma',
+      data: workoutFrequency,
+      backgroundColor: '#e63946',
+      borderRadius: 10,
+      maxBarThickness: 38
+    }]
   };
   
   const chartOptions = { 
     responsive: true, 
     plugins: { legend: { display: false } }, 
-    scales: { y: { beginAtZero: true } } 
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: {
+          precision: 0,
+          stepSize: 1
+        }
+      }
+    }
+  };
+
+  const workoutChartOptions = {
+    ...chartOptions,
+    plugins: {
+      ...chartOptions.plugins,
+      tooltip: {
+        callbacks: {
+          label: (context) => {
+            const dayWorkouts = workoutsByDay[context.dataIndex] || [];
+            if (dayWorkouts.length === 0) {
+              return 'Nincs edzés';
+            }
+            return dayWorkouts.map((workout) => workout.name || 'Névtelen edzés');
+          }
+        }
+      }
+    }
   };
 
   const totalCaloriesToday = nutritionData.todayMeals?.reduce((sum, meal) => sum + (meal.calories || 0), 0) || 0;
@@ -1108,7 +1151,6 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
     'dashboard': { icon: 'fa-home', text: 'Dashboard', subtitle: 'Üdvözöljük!' },
     'workout-plan': { icon: 'fa-dumbbell', text: 'Edzésterv', subtitle: 'Heti edzésterv' },
     'workout-mode': { icon: 'fa-play-circle', text: 'Edzés mód', subtitle: 'Aktív edzés' },
-    'progress': { icon: 'fa-chart-line', text: 'Haladás', subtitle: 'Statisztikák' },
     'fejlodes': { icon: 'fa-camera', text: 'Fejlődés', subtitle: 'Testfotók és megjegyzések' },
     'nutrition': { icon: 'fa-utensils', text: 'Táplálkozás', subtitle: 'Kalóriakövetés' },
     'gyms': { icon: 'fa-map-marker-alt', text: 'Edzőtermek', subtitle: 'Közeli termek' },
@@ -1196,7 +1238,7 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
           </div>
           <div className="charts-grid">
             <div className="chart-container"><h3>Súlyfejlődés</h3><Line data={weightChartData} options={chartOptions} /></div>
-            <div className="chart-container"><h3>Edzési gyakoriság</h3><Bar data={workoutChartData} options={chartOptions} /></div>
+            <div className="chart-container"><h3>Edzési gyakoriság</h3><Bar data={workoutChartData} options={workoutChartOptions} /></div>
           </div>
         </div>
 
@@ -1458,7 +1500,11 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
                 <div className="badges-grid">
                   {badges.map((badge, i) => (
                     <div key={i} className="badge-card" style={{ borderColor: badge.color }}>
-                      <i className={`fas ${badge.icon}`} style={{ color: badge.color }}></i>
+                      {badge.emoji ? (
+                        <span style={{ color: badge.color }}>{badge.emoji}</span>
+                      ) : (
+                        <i className={`fas ${badge.icon}`} style={{ color: badge.color }}></i>
+                      )}
                       <h4>{badge.name}</h4>
                       <p>{badge.description}</p>
                     </div>
@@ -1473,7 +1519,7 @@ const Dashboard = ({ navigateTo, handleLogout }) => {
               <h3>🔓 Elérhető jelvények</h3>
               <div className="badges-grid">
                 <div className="badge-card locked"><i className="fas fa-fire"></i><h4>Edzésőrült</h4><p>Heti 5+ edzés</p></div>
-                <div className="badge-card locked"><i className="fas fa-heart"></i><h4>Kitartó</h4><p>Heti 3+ edzés</p></div>
+                <div className="badge-card locked"><span>💪</span><h4>Kitartó</h4><p>Heti 3+ edzés</p></div>
                 <div className="badge-card locked"><i className="fas fa-chart-line"></i><h4>Rekorddöntő</h4><p>Új rekord</p></div>
               </div>
             </div>

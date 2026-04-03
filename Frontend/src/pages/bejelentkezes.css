@@ -22,6 +22,12 @@
   width: 100%;
 }
 
+body.dark-mode .bejelentkezes-container {
+  background:
+    radial-gradient(circle at top left, rgba(230, 57, 70, 0.14), transparent 28%),
+    linear-gradient(135deg, #0f1424 0%, #1b2740 100%);
+}
+
 /* Űrlap konténer */
 .form-container {
   display: flex;
@@ -43,15 +49,33 @@
   text-align: center;
 }
 
+body.dark-mode .form-box {
+  background: #191d2d;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 .form-box h2 {
   font-size: 2rem;
   color: var(--dark);
   margin-bottom: 0.5rem;
 }
 
+body.dark-mode .form-box h2,
+body.dark-mode .form-group label {
+  color: #f3f4f8;
+}
+
 .form-box p {
   color: var(--gray);
   margin-bottom: 2rem;
+}
+
+body.dark-mode .form-box p,
+body.dark-mode .form-footer,
+body.dark-mode .divider span,
+body.dark-mode .remember-me label {
+  color: #b3b8ca;
 }
 
 .form-group {
@@ -78,6 +102,10 @@
   color: var(--gray);
 }
 
+body.dark-mode .input-with-icon i {
+  color: #98a1bb;
+}
+
 .form-group input {
   width: 100%;
   padding: 0.8rem 1rem 0.8rem 2.5rem;
@@ -85,6 +113,16 @@
   border-radius: 5px;
   font-size: 1rem;
   transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+body.dark-mode .form-group input {
+  background: #23283b;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #f3f4f8;
+}
+
+body.dark-mode .form-group input::placeholder {
+  color: #8e97b3;
 }
 
 .form-group input:focus {
@@ -114,6 +152,11 @@
   color: var(--primary);
   text-decoration: none;
   transition: color 0.3s;
+}
+
+body.dark-mode .forgot-password:hover,
+body.dark-mode .form-footer a:hover {
+  color: #ffb15c;
 }
 
 .forgot-password:hover {
@@ -180,6 +223,12 @@
   transition: all 0.3s;
 }
 
+body.dark-mode .social-button {
+  background-color: #23283b;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #f3f4f8;
+}
+
 .social-button:hover {
   transform: translateY(-3px);
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
@@ -227,6 +276,11 @@ footer {
   padding: 2rem 5%;
   margin-top: auto;
   width: 100%;
+}
+
+body.dark-mode .bejelentkezes-container footer {
+  background: #0f1424;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .footer-content {

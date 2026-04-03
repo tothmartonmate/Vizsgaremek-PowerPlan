@@ -22,6 +22,17 @@ pool.getConnection()
     .then((connection) => { console.log('✅ Sikeresen csatlakozva a MySQL adatbázishoz!'); connection.release(); })
     .catch((err) => console.error('❌ Hiba az adatbázis csatlakozáskor:', err.message));
 
+let progressImageColumnPromise;
+const getProgressImageColumn = async () => {
+    if (!progressImageColumnPromise) {
+        progressImageColumnPromise = (async () => {
+            const [imageBase64Column] = await pool.query("SHOW COLUMNS FROM progress_photos LIKE 'image_base64'");
+            return imageBase64Column.length > 0 ? 'image_base64' : 'image_data';
+        })();
+    }
+    return progressImageColumnPromise;
+};
+
 // -------------------- REGISZTRÁCIÓ --------------------
 app.post('/api/register', async (req, res) => {
     const { full_name, email, password, fitnessGoal } = req.body;
@@ -123,7 +134,7 @@ app.get('/api/dashboard/:userId', async (req, res) => {
     try {
         const [meals] = await pool.query(`SELECT id, meal_type, food_name as name, description, calories, protein_g as protein, carbs_g as carbs, fat_g as fat, DATE_FORMAT(consumed_date, '%H:%i') as time FROM nutrition_logs WHERE user_id = ? AND consumed_date = CURDATE() ORDER BY created_at DESC`, [userId]);
         const [workoutRows] = await pool.query(
-            `SELECT w.id as workout_id, w.name as workout_name, w.workout_type, w.scheduled_day, e.id as ex_id, e.muscle_group, e.exercise_name, e.sets_data 
+            `SELECT w.id as workout_id, w.name as workout_name, w.workout_type, w.scheduled_day, w.created_at as workout_created_at, e.id as ex_id, e.muscle_group, e.exercise_name, e.sets_data 
              FROM workouts w 
              LEFT JOIN workout_exercises e ON w.id = e.workout_id 
              WHERE w.user_id = ?`, 
@@ -133,7 +144,7 @@ app.get('/api/dashboard/:userId', async (req, res) => {
         workoutRows.forEach(row => {
             if (!groupedWorkouts[row.workout_id]) {
                 groupedWorkouts[row.workout_id] = {
-                    id: row.workout_id, name: row.workout_name, type: row.workout_type, day: row.scheduled_day, exercises: []
+                    id: row.workout_id, name: row.workout_name, type: row.workout_type, day: row.scheduled_day, created_at: row.workout_created_at, exercises: []
                 };
             }
             if (row.ex_id) {
@@ -206,7 +217,8 @@ app.get('/api/progress/:userId', async (req, res) => {
     const { userId } = req.params;
     if (!userId) return res.status(400).json({ error: 'Hiányzó felhasználó azonosító!' });
     try {
-        const [rows] = await pool.query('SELECT id, user_id as userId, image_base64 as imageBase64, note, weight_kg as weightKg, record_date as recordDate, created_at as createdAt, updated_at as updatedAt FROM progress_photos WHERE user_id = ? ORDER BY record_date DESC, created_at DESC', [userId]);
+        const imageColumn = await getProgressImageColumn();
+        const [rows] = await pool.query(`SELECT id, user_id as userId, ${imageColumn} as imageBase64, note, record_date as recordDate, created_at as createdAt, updated_at as updatedAt FROM progress_photos WHERE user_id = ? ORDER BY record_date DESC, created_at DESC`, [userId]);
         return res.status(200).json({ success: true, progress: rows });
     } catch (error) {
         console.error('Hiba progress lekérésekor:', error);
@@ -215,14 +227,15 @@ app.get('/api/progress/:userId', async (req, res) => {
 });
 
 app.post('/api/progress', async (req, res) => {
-    const { userId, imageBase64, note, weightKg, recordDate } = req.body;
+    const { userId, imageBase64, note, recordDate } = req.body;
     if (!userId || !imageBase64 || !recordDate) {
         return res.status(400).json({ error: 'userId, imageBase64 és recordDate szükséges!' });
     }
     try {
+        const imageColumn = await getProgressImageColumn();
         const [result] = await pool.query(
-            'INSERT INTO progress_photos (user_id, image_base64, note, weight_kg, record_date) VALUES (?, ?, ?, ?, ?)',
-            [userId, imageBase64, note || null, weightKg || null, recordDate]
+            `INSERT INTO progress_photos (user_id, ${imageColumn}, note, record_date) VALUES (?, ?, ?, ?)`,
+            [userId, imageBase64, note || null, recordDate]
         );
         res.status(201).json({ success: true, id: result.insertId });
     } catch (error) {
@@ -233,12 +246,12 @@ app.post('/api/progress', async (req, res) => {
 
 app.put('/api/progress/:id', async (req, res) => {
     const { id } = req.params;
-    const { note, weightKg, recordDate } = req.body;
+    const { note, recordDate } = req.body;
     if (!id) return res.status(400).json({ error: 'Hiányzó azonosító!' });
     try {
         await pool.query(
-            'UPDATE progress_photos SET note = COALESCE(?, note), weight_kg = COALESCE(?, weight_kg), record_date = COALESCE(?, record_date), updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [note || null, weightKg || null, recordDate || null, id]
+            'UPDATE progress_photos SET note = COALESCE(?, note), record_date = COALESCE(?, record_date), updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [note || null, recordDate || null, id]
         );
         res.json({ success: true, message: 'Progresszió frissítve!' });
     } catch (error) {

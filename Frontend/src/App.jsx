@@ -11,6 +11,11 @@ function App() {
   const [currentPage, setCurrentPage] = useState('home');
   const [showDemoModal, setShowDemoModal] = useState(false);
   const [showPlanModal, setShowPlanModal] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('powerplan_dark_mode');
+    return saved !== null ? saved === 'true' : false;
+  });
 
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -26,6 +31,16 @@ function App() {
     }
   }, []);
 
+  useEffect(() => {
+    if (darkMode) {
+      document.body.classList.add('dark-mode');
+      localStorage.setItem('powerplan_dark_mode', 'true');
+    } else {
+      document.body.classList.remove('dark-mode');
+      localStorage.setItem('powerplan_dark_mode', 'false');
+    }
+  }, [darkMode]);
+
   const navigateTo = (page) => {
     setCurrentPage(page);
     window.scrollTo(0, 0);
@@ -38,6 +53,7 @@ function App() {
   const handleCloseModal = () => {
     setShowDemoModal(false);
     setShowPlanModal(false);
+    setShowLogoutModal(false);
   };
 
   const handleStartDemo = () => {
@@ -143,6 +159,7 @@ function App() {
   }, []);
 
   const handleLogout = () => {
+    setShowLogoutModal(false);
     localStorage.removeItem('powerplan_user_completed_questionnaire');
     localStorage.removeItem('powerplan_demo_mode');
     localStorage.removeItem('powerplan_questionnaire');
@@ -152,6 +169,11 @@ function App() {
     localStorage.removeItem('powerplan_remember_me');
     setIsLoggedIn(false);
     navigateTo('home');
+  };
+
+  const handleShowLogoutModal = (e) => {
+    if (e) e.preventDefault();
+    setShowLogoutModal(true);
   };
 
   const renderHomePage = () => (
@@ -312,12 +334,21 @@ function App() {
           </div>
         </div>
       )}
+
     </>
   );
 
   const renderRegisztracioPage = () => <Regisztracio navigateTo={navigateTo} />;
   const renderBejelentkezesPage = () => <Bejelentkezes navigateTo={navigateTo} setIsLoggedIn={setIsLoggedIn} />;
-  const renderDashboardPage = () => <Dashboard navigateTo={navigateTo} handleLogout={handleLogout} />;
+  const renderDashboardPage = () => (
+    <Dashboard
+      navigateTo={navigateTo}
+      handleLogout={handleLogout}
+      requestLogout={handleShowLogoutModal}
+      darkMode={darkMode}
+      setDarkMode={setDarkMode}
+    />
+  );
   const renderQuestionnairePage = () => <Questionnaire navigateTo={navigateTo} setIsLoggedIn={setIsLoggedIn} />;
 
   return (
@@ -344,7 +375,7 @@ function App() {
             {isLoggedIn ? (
               <>
                 <li><a href="#" onClick={() => navigateTo('dashboard')}>PROFILOM</a></li>
-                <li><a href="#" onClick={handleLogout}>KIJELENTKEZÉS</a></li>
+                <li><a href="#" onClick={handleShowLogoutModal}>KIJELENTKEZÉS</a></li>
               </>
             ) : (
               <>
@@ -353,6 +384,9 @@ function App() {
               </>
             )}
           </ul>
+          <button className="theme-toggle-btn" onClick={() => setDarkMode(!darkMode)} title={darkMode ? 'Világos mód' : 'Sötét mód'}>
+            <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`}></i>
+          </button>
         </nav>
       )}
 
@@ -362,6 +396,22 @@ function App() {
         : currentPage === 'dashboard' ? renderDashboardPage()
         : currentPage === 'questionnaire' ? renderQuestionnairePage() : null
       }
+
+      {showLogoutModal && (
+        <div className="modal active confirm-modal logout-modal" onClick={handleCloseModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="confirm-modal-icon">
+              <i className="fas fa-sign-out-alt"></i>
+            </div>
+            <h3>Kijelentkezés</h3>
+            <p>Biztosan ki szeretnél jelentkezni? A jelenlegi munkameneted azonnal lezárul.</p>
+            <div className="modal-buttons confirm-modal-actions">
+              <button className="cta-button secondary confirm-cancel-btn" onClick={handleCloseModal}>Mégse</button>
+              <button className="cta-button confirm-danger-btn" onClick={handleLogout}>Kijelentkezés</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
