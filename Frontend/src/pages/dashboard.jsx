@@ -1370,12 +1370,12 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const sectionTitles = {
     'dashboard': { icon: 'fa-home', text: 'Dashboard', subtitle: 'Üdvözöljük!' },
     'workout-plan': { icon: 'fa-dumbbell', text: 'Edzésterv', subtitle: 'Heti edzésterv' },
-    'workout-mode': { icon: 'fa-play-circle', text: 'Edzés mód', subtitle: 'Aktív edzés' },
+    'workout-mode': { icon: 'fa-play-circle', text: 'Stopper', subtitle: 'Aktív edzés' },
     'fejlodes': { icon: 'fa-camera', text: 'Fejlődés', subtitle: 'Testfotók és megjegyzések' },
     'nutrition': { icon: 'fa-utensils', text: 'Táplálkozás', subtitle: 'Kalóriakövetés' },
     'gyms': { icon: 'fa-map-marker-alt', text: 'Edzőtermek', subtitle: 'Közeli termek' },
     'exercises': { icon: 'fa-video', text: 'Gyakorlatok', subtitle: 'Oktatóvideók' },
-    'badges': { icon: 'fa-trophy', text: 'Jelvények', subtitle: 'Teljesítmények' },
+    'badges': { icon: 'fa-trophy', text: 'Jelvények' },
     'profile': { icon: 'fa-user-circle', text: 'Profil', subtitle: 'Személyes adatok' }
   };
 
@@ -1411,7 +1411,12 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         <div className="top-bar">
           <div className="page-title">
             <h1><i className={`fas ${sectionTitles[currentSection]?.icon}`}></i><span>{sectionTitles[currentSection]?.text}</span></h1>
-            <p>{sectionTitles[currentSection]?.subtitle}</p>
+            {sectionTitles[currentSection]?.subtitle && (
+              <p>
+                {sectionTitles[currentSection]?.subtitleIcon && <i className={`fas ${sectionTitles[currentSection].subtitleIcon}`}></i>}
+                <span>{sectionTitles[currentSection]?.subtitle}</span>
+              </p>
+            )}
           </div>
           <div className="top-actions">
             <div className="date-time" id="currentDateTime"></div>
@@ -1465,7 +1470,6 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         {/* WORKOUT PLAN SECTION */}
         <div className={`content-section ${currentSection === 'workout-plan' ? 'active' : ''}`}>
           <div className="card">
-            <h2><i className="fas fa-dumbbell"></i> Heti Edzésterv</h2>
             <WeekCalendar selectedDate={selectedDate} onDateChange={setSelectedDate} onWeekChange={loadWeekWorkouts} />
             {loadingWorkouts ? (
               <div className="loading-spinner"><i className="fas fa-spinner fa-spin"></i> Betöltés...</div>
@@ -1510,8 +1514,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         {/* WORKOUT MODE SECTION */}
         <div className={`content-section ${currentSection === 'workout-mode' ? 'active' : ''}`}>
           <div className="workout-mode">
-            <div className="section-header">
-              <h2><i className="fas fa-play-circle"></i> Edzés mód</h2>
+            <div className="section-header section-header-actions-only">
               <button className="btn btn-secondary" onClick={stopWorkout}><i className="fas fa-stop"></i> Befejezés</button>
             </div>
             <div className="workout-timer">{formatTime(workoutTime)}</div>
@@ -1542,8 +1545,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         {/* FEJLŐDÉS SECTION */}
         <div className={`content-section ${currentSection === 'fejlodes' ? 'active' : ''}`}>
           <div className="card">
-            <div className="section-header">
-              <h2><i className="fas fa-camera"></i> Fejlődés</h2>
+            <div className="section-header section-header-actions-only">
               <input type="file" accept="image/*" onChange={handleProgressPhotoUpload} id="progress-photo-input" style={{ display: 'none' }} />
               <button className="btn btn-primary" onClick={() => document.getElementById('progress-photo-input').click()}>
                 <i className="fas fa-plus"></i> Fotó feltöltés
@@ -1698,7 +1700,6 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         {/* GYMS SECTION */}
         <div className={`content-section ${currentSection === 'gyms' ? 'active' : ''}`}>
           <div className="card">
-            <h2><i className="fas fa-map-marker-alt"></i> Edzőtermek</h2>
             <GymMap />
           </div>
         </div>
@@ -1706,7 +1707,6 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         {/* EXERCISES SECTION */}
         <div className={`content-section ${currentSection === 'exercises' ? 'active' : ''}`}>
           <div className="card">
-            <h2><i className="fas fa-video"></i> Gyakorlatok</h2>
             <div className="exercise-categories">
               {Object.keys(EXERCISE_DB_WITH_VIDEOS).map(cat => (
                 <div key={cat} className="exercise-category">
@@ -1740,8 +1740,6 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         {/* BADGES SECTION */}
         <div className={`content-section ${currentSection === 'badges' ? 'active' : ''}`}>
           <div className="card">
-            <h2><i className="fas fa-trophy"></i> Jelvények</h2>
-            
             <div className="records-section">
               <h3>🏆 Személyes Rekordok</h3>
               <div className="records-grid">

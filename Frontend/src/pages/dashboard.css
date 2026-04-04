@@ -390,6 +390,9 @@ body.dark-mode .sidebar .logo span {
 .page-title p {
   margin: 5px 0 0;
   color: var(--gray);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .date-time {
@@ -474,6 +477,10 @@ body.dark-mode .theme-toggle-btn:hover {
 .section-header h2 {
   margin: 0;
   color: var(--dark);
+}
+
+.section-header-actions-only {
+  justify-content: flex-end;
 }
 
 .btn {
@@ -1322,6 +1329,11 @@ body.dark-mode .theme-toggle-btn:hover {
 .available-badges h3 {
   margin-bottom: 15px;
   color: var(--dark);
+}
+
+.records-section h3 {
+  font-size: 2rem;
+  line-height: 1.1;
 }
 
 .records-grid,
