@@ -8,6 +8,7 @@ import Dashboard from './pages/dashboard';
 import Questionnaire from './pages/questionnarie';
 import TermsPage from './pages/TermsPage';
 import PrivacyPage from './pages/PrivacyPage';
+import FeedbackModal from './components/FeedbackModal';
 
 function App() {
   const [currentPage, setCurrentPage] = useState('home');
@@ -27,6 +28,8 @@ function App() {
     return saved !== null ? saved === 'true' : false;
   });
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [contactModalConfig, setContactModalConfig] = useState(null);
+  const [isSubmittingContact, setIsSubmittingContact] = useState(false);
 
   useEffect(() => {
     const loggedIn = localStorage.getItem('powerplan_user_completed_questionnaire');
@@ -117,17 +120,61 @@ function App() {
     navigateTo('dashboard');
   };
 
-  const handleContactSubmit = (e) => {
+  const handleContactSubmit = async (e) => {
     e.preventDefault();
-    const formData = {
-      name: document.getElementById('name')?.value,
-      email: document.getElementById('email')?.value,
-      subject: document.getElementById('subject')?.value,
-      message: document.getElementById('message')?.value
+
+    const formData = new FormData(e.currentTarget);
+    const savedUser = localStorage.getItem('powerplan_current_user');
+    const currentUser = savedUser ? JSON.parse(savedUser) : null;
+    const payload = {
+      userId: currentUser?.id || null,
+      name: String(formData.get('name') || '').trim(),
+      email: String(formData.get('email') || '').trim(),
+      subject: String(formData.get('subject') || '').trim(),
+      message: String(formData.get('message') || '').trim()
     };
-    console.log('Kapcsolati űrlap adatok:', formData);
-    alert('Köszönjük üzenetét! Hamarosan válaszolunk.');
-    e.target.reset();
+
+    setIsSubmittingContact(true);
+
+    try {
+      const response = await fetch('http://localhost:5001/api/contact', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setContactModalConfig({
+          type: 'error',
+          title: 'Üzenetküldés sikertelen',
+          message: data.error || 'Nem sikerült elküldeni az üzenetet.',
+          confirmLabel: 'Rendben'
+        });
+        return;
+      }
+
+      setContactModalConfig({
+        type: 'success',
+        title: 'Üzenet elküldve',
+        message: 'Köszönjük az üzenetedet! Hamarosan válaszolunk.',
+        confirmLabel: 'Rendben'
+      });
+      e.currentTarget.reset();
+    } catch (error) {
+      console.error('Kapcsolat űrlap hiba:', error);
+      setContactModalConfig({
+        type: 'error',
+        title: 'Kapcsolódási hiba',
+        message: 'A szerver jelenleg nem érhető el.',
+        confirmLabel: 'Rendben'
+      });
+    } finally {
+      setIsSubmittingContact(false);
+    }
   };
 
   useEffect(() => {
@@ -241,11 +288,11 @@ function App() {
           </div>
           <div className="contact-form">
             <form id="contactForm" onSubmit={handleContactSubmit}>
-              <div className="form-group"><label htmlFor="name">Név</label><input type="text" id="name" required /></div>
-              <div className="form-group"><label htmlFor="email">Email</label><input type="email" id="email" required /></div>
-              <div className="form-group"><label htmlFor="subject">Tárgy</label><input type="text" id="subject" required /></div>
-              <div className="form-group"><label htmlFor="message">Üzenet</label><textarea id="message" required></textarea></div>
-              <button type="submit" className="submit-button">ÜZENET KÜLDÉSE</button>
+              <div className="form-group"><label htmlFor="contact-name">Név</label><input type="text" id="contact-name" name="name" required disabled={isSubmittingContact} /></div>
+              <div className="form-group"><label htmlFor="contact-email">Email</label><input type="email" id="contact-email" name="email" required disabled={isSubmittingContact} /></div>
+              <div className="form-group"><label htmlFor="contact-subject">Tárgy</label><input type="text" id="contact-subject" name="subject" required disabled={isSubmittingContact} /></div>
+              <div className="form-group"><label htmlFor="contact-message">Üzenet</label><textarea id="contact-message" name="message" required disabled={isSubmittingContact}></textarea></div>
+              <button type="submit" className="submit-button" disabled={isSubmittingContact}>{isSubmittingContact ? 'KÜLDÉS...' : 'ÜZENET KÜLDÉSE'}</button>
             </form>
           </div>
         </div>
@@ -380,6 +427,16 @@ function App() {
           </div>
         </div>
       )}
+
+      <FeedbackModal
+        isOpen={Boolean(contactModalConfig)}
+        type={contactModalConfig?.type || 'info'}
+        title={contactModalConfig?.title || ''}
+        message={contactModalConfig?.message || ''}
+        confirmLabel={contactModalConfig?.confirmLabel || 'Rendben'}
+        onConfirm={() => setContactModalConfig(null)}
+        onClose={() => setContactModalConfig(null)}
+      />
     </>
   );
 }

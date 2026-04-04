@@ -1629,6 +1629,133 @@ body.dark-mode .theme-toggle-btn:hover {
   gap: 15px;
 }
 
+.admin-layout {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 24px;
+}
+
+.admin-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.admin-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-panel-header span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(230, 57, 70, 0.12);
+  color: var(--primary);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.admin-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-message-card,
+.admin-user-card {
+  background: var(--light);
+  border: 1px solid rgba(29, 53, 87, 0.08);
+  border-radius: 18px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.admin-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.admin-card-top h4 {
+  margin-bottom: 4px;
+}
+
+.admin-meta {
+  color: var(--gray);
+  font-size: 0.9rem;
+}
+
+.admin-message-body {
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.admin-reply-box {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.admin-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-card-actions small {
+  color: var(--gray);
+}
+
+.admin-status-pill {
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background: rgba(244, 162, 97, 0.18);
+  color: #c26b1d;
+}
+
+.admin-status-pill.replied {
+  background: rgba(42, 157, 143, 0.18);
+  color: var(--success);
+}
+
+.admin-form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.admin-role-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.admin-role-toggle input {
+  accent-color: var(--primary);
+}
+
+body.dark-mode .admin-message-card,
+body.dark-mode .admin-user-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+body.dark-mode .admin-panel-header span {
+  background: rgba(230, 57, 70, 0.18);
+}
+
 .food-search-wrap {
   position: relative;
 }
@@ -1888,6 +2015,9 @@ hr {
 }
 
 @media (max-width: 992px) {
+  .admin-layout {
+    grid-template-columns: 1fr;
+  }
   .sidebar {
     transform: translateX(-250px);
   }
@@ -1909,6 +2039,11 @@ hr {
 }
 
 @media (max-width: 768px) {
+  .admin-card-top,
+  .admin-card-actions {
+    flex-direction: column;
+    align-items: flex-start;
+  }
   .main-content {
     padding: 20px;
   }

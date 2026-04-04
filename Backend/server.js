@@ -44,6 +44,53 @@ const getProgressImageColumn = async () => {
     return progressImageColumnPromise;
 };
 
+const ensureAdminSchema = async () => {
+    try {
+        const [adminColumn] = await pool.query("SHOW COLUMNS FROM users LIKE 'is_admin'");
+        if (adminColumn.length === 0) {
+            await pool.query('ALTER TABLE users ADD COLUMN is_admin TINYINT(1) NOT NULL DEFAULT 0');
+            console.log('✅ Hozzáadva az is_admin oszlop a users táblához');
+        }
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS contact_messages (
+                id INT NOT NULL AUTO_INCREMENT,
+                user_id INT NULL,
+                name VARCHAR(100) NOT NULL,
+                email VARCHAR(100) NOT NULL,
+                subject VARCHAR(150) NOT NULL,
+                message TEXT NOT NULL,
+                admin_reply TEXT NULL,
+                status ENUM('new', 'replied') NOT NULL DEFAULT 'new',
+                created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+                replied_at TIMESTAMP NULL DEFAULT NULL,
+                PRIMARY KEY (id),
+                KEY idx_contact_messages_user_id (user_id),
+                CONSTRAINT fk_contact_messages_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+        `);
+    } catch (error) {
+        console.error('❌ Hiba az admin séma előkészítésekor:', error.message);
+    }
+};
+
+const isAdminUser = async (userId) => {
+    if (!userId) return false;
+    const [rows] = await pool.query('SELECT is_admin FROM users WHERE id = ? LIMIT 1', [userId]);
+    return rows.length > 0 && Boolean(rows[0].is_admin);
+};
+
+const requireAdmin = async (userId, res) => {
+    const allowed = await isAdminUser(userId);
+    if (!allowed) {
+        res.status(403).json({ error: 'Nincs admin jogosultság!' });
+        return false;
+    }
+    return true;
+};
+
+ensureAdminSchema();
+
 // -------------------- REGISZTRÁCIÓ --------------------
 app.get('/api/register/check-email', async (req, res) => {
     const email = String(req.query.email || '').trim();
@@ -74,7 +121,7 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
     try {
-        const [users] = await pool.query('SELECT id, full_name, email, password_hash, profile_image FROM users WHERE email = ?', [email]);
+        const [users] = await pool.query('SELECT id, full_name, email, password_hash, profile_image, is_admin FROM users WHERE email = ?', [email]);
         if (users.length === 0) return res.status(401).json({ error: 'Hibás adatok!' });
         const user = users[0];
         const validPassword = await bcrypt.compare(password, user.password_hash);
@@ -82,7 +129,7 @@ app.post('/api/login', async (req, res) => {
         const token = Buffer.from(`${user.id}-${Date.now()}`).toString('base64');
         res.status(200).json({ 
             success: true, 
-            user: { id: user.id, full_name: user.full_name, email: user.email, profile_image: user.profile_image },
+            user: { id: user.id, full_name: user.full_name, email: user.email, profile_image: user.profile_image, is_admin: Boolean(user.is_admin) },
             token: token
         });
     } catch (error) { 
@@ -627,6 +674,128 @@ app.get('/api/user-profile/:userId', async (req, res) => {
         res.json({ success: true, profileImage: rows[0].profile_image });
     } catch (error) {
         res.status(500).json({ error: 'Szerverhiba!' });
+    }
+});
+
+// -------------------- KAPCSOLAT ÜZENET --------------------
+app.post('/api/contact', async (req, res) => {
+    const { userId, name, email, subject, message } = req.body;
+    if (!name || !email || !subject || !message) {
+        return res.status(400).json({ error: 'Minden mező kitöltése kötelező!' });
+    }
+
+    try {
+        await pool.query(
+            `INSERT INTO contact_messages (user_id, name, email, subject, message)
+             VALUES (?, ?, ?, ?, ?)`,
+            [userId || null, String(name).trim(), String(email).trim(), String(subject).trim(), String(message).trim()]
+        );
+
+        return res.status(201).json({ success: true, message: 'Üzenet elküldve!' });
+    } catch (error) {
+        console.error('Hiba kapcsolat üzenet mentésekor:', error);
+        return res.status(500).json({ error: 'Szerverhiba történt!' });
+    }
+});
+
+// -------------------- ADMIN ÁTTEKINTÉS --------------------
+app.get('/api/admin/overview/:userId', async (req, res) => {
+    const adminUserId = Number(req.params.userId);
+
+    try {
+        if (!(await requireAdmin(adminUserId, res))) return;
+
+        const [messages] = await pool.query(
+            `SELECT id, user_id as userId, name, email, subject, message, admin_reply as adminReply, status,
+                    created_at as createdAt, replied_at as repliedAt
+             FROM contact_messages
+             ORDER BY created_at DESC`
+        );
+
+        const [users] = await pool.query(
+            `SELECT id, full_name as fullName, email, fitness_goal as fitnessGoal, total_points as totalPoints,
+                    current_level as currentLevel, profile_image as profileImage, is_admin as isAdmin,
+                    created_at as createdAt, updated_at as updatedAt
+             FROM users
+             ORDER BY created_at DESC`
+        );
+
+        return res.json({
+            success: true,
+            messages,
+            users: users.map((user) => ({
+                ...user,
+                isAdmin: Boolean(user.isAdmin)
+            }))
+        });
+    } catch (error) {
+        console.error('Hiba admin áttekintés lekérésekor:', error);
+        return res.status(500).json({ error: 'Szerverhiba történt!' });
+    }
+});
+
+app.put('/api/admin/messages/:messageId/reply', async (req, res) => {
+    const adminUserId = Number(req.body.adminUserId);
+    const messageId = Number(req.params.messageId);
+    const replyMessage = String(req.body.replyMessage || '').trim();
+
+    if (!messageId || !replyMessage) {
+        return res.status(400).json({ error: 'Az üzenet azonosítója és a válasz kötelező!' });
+    }
+
+    try {
+        if (!(await requireAdmin(adminUserId, res))) return;
+
+        await pool.query(
+            `UPDATE contact_messages
+             SET admin_reply = ?, status = 'replied', replied_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [replyMessage, messageId]
+        );
+
+        return res.json({ success: true, message: 'Válasz elmentve!' });
+    } catch (error) {
+        console.error('Hiba admin válasz mentésekor:', error);
+        return res.status(500).json({ error: 'Szerverhiba történt!' });
+    }
+});
+
+app.put('/api/admin/users/:targetUserId', async (req, res) => {
+    const adminUserId = Number(req.body.adminUserId);
+    const targetUserId = Number(req.params.targetUserId);
+    const { fullName, email, fitnessGoal, totalPoints, currentLevel, isAdmin } = req.body;
+
+    if (!targetUserId || !fullName || !email) {
+        return res.status(400).json({ error: 'A név, email és azonosító kötelező!' });
+    }
+
+    try {
+        if (!(await requireAdmin(adminUserId, res))) return;
+
+        await pool.query(
+            `UPDATE users
+             SET full_name = ?,
+                 email = ?,
+                 fitness_goal = ?,
+                 total_points = ?,
+                 current_level = ?,
+                 is_admin = ?
+             WHERE id = ?`,
+            [
+                String(fullName).trim(),
+                String(email).trim(),
+                fitnessGoal || null,
+                Number.isFinite(Number(totalPoints)) ? Number(totalPoints) : 0,
+                Number.isFinite(Number(currentLevel)) ? Number(currentLevel) : 1,
+                isAdmin ? 1 : 0,
+                targetUserId
+            ]
+        );
+
+        return res.json({ success: true, message: 'Felhasználó frissítve!' });
+    } catch (error) {
+        console.error('Hiba admin felhasználó frissítéskor:', error);
+        return res.status(500).json({ error: 'Szerverhiba történt!' });
     }
 });
 

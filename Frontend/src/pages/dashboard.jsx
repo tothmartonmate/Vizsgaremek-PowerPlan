@@ -668,6 +668,10 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     deadlift: 0
   });
   const [workoutStreak, setWorkoutStreak] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminMessages, setAdminMessages] = useState([]);
+  const [adminLoading, setAdminLoading] = useState(false);
   
   const [userData, setUserData] = useState({});
   const [workoutData, setWorkoutData] = useState({ weeklyPlan: [], stats: {}, aiRecommendation: '' });
@@ -747,6 +751,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     const currentUser = savedUser ? JSON.parse(savedUser) : null;
 
     if (currentUser) {
+      setIsAdmin(Boolean(currentUser.is_admin));
       const nameParts = (currentUser.full_name || '').split(' ');
       setUserData({
         email: currentUser.email || '',
@@ -777,6 +782,9 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         loadNutritionWeek(new Date());
         loadProfileImage(currentUser.id, token);
         loadProgressPhotos(currentUser.id, token);
+        if (currentUser.is_admin) {
+          loadAdminData(currentUser.id, token);
+        }
       }
     } else {
       if (navigateTo) navigateTo('home');
@@ -923,6 +931,130 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
       }
     } catch (error) { console.error(error); } 
     finally { setLoadingWorkouts(false); }
+  };
+
+  const loadAdminData = async (userId, token) => {
+    setAdminLoading(true);
+    try {
+      const response = await fetch(`http://localhost:5001/api/admin/overview/${userId}`, {
+        headers: getAuthHeaders(token)
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAdminUsers(data.users || []);
+        setAdminMessages(data.messages || []);
+      } else {
+        showToast('Nem sikerült betölteni az admin adatokat.', 'error');
+      }
+    } catch (error) {
+      console.error('Admin adatok betöltési hiba:', error);
+      showToast('Hálózati hiba az admin adatok betöltésekor.', 'error');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleAdminUserFieldChange = (userId, field, value) => {
+    setAdminUsers((prev) => prev.map((user) => (
+      user.id === userId ? { ...user, [field]: value } : user
+    )));
+  };
+
+  const handleAdminMessageReplyChange = (messageId, value) => {
+    setAdminMessages((prev) => prev.map((message) => (
+      message.id === messageId ? { ...message, adminReply: value } : message
+    )));
+  };
+
+  const saveAdminUser = async (targetUserId) => {
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+    const selectedUser = adminUsers.find((user) => user.id === targetUserId);
+
+    if (!currentUser.id || !selectedUser) return;
+
+    try {
+      const response = await fetch(`http://localhost:5001/api/admin/users/${targetUserId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(token)
+        },
+        body: JSON.stringify({
+          adminUserId: currentUser.id,
+          fullName: selectedUser.fullName,
+          email: selectedUser.email,
+          fitnessGoal: selectedUser.fitnessGoal,
+          totalPoints: selectedUser.totalPoints,
+          currentLevel: selectedUser.currentLevel,
+          isAdmin: selectedUser.isAdmin
+        })
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        showToast(data.error || 'Nem sikerült menteni a felhasználót.', 'error');
+        return;
+      }
+
+      if (currentUser.id === targetUserId) {
+        const updatedCurrentUser = {
+          ...currentUser,
+          full_name: selectedUser.fullName,
+          email: selectedUser.email,
+          is_admin: Boolean(selectedUser.isAdmin)
+        };
+        localStorage.setItem('powerplan_current_user', JSON.stringify(updatedCurrentUser));
+        setIsAdmin(Boolean(selectedUser.isAdmin));
+      }
+
+      showToast('Felhasználó adatai elmentve.', 'success');
+    } catch (error) {
+      console.error('Admin user mentési hiba:', error);
+      showToast('Hálózati hiba a felhasználó mentésekor.', 'error');
+    }
+  };
+
+  const saveAdminReply = async (messageId) => {
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+    const selectedMessage = adminMessages.find((message) => message.id === messageId);
+
+    if (!currentUser.id || !selectedMessage?.adminReply?.trim()) {
+      showToast('Adj meg egy választ az üzenethez.', 'warning');
+      return;
+    }
+
+    try {
+      const response = await fetch(`http://localhost:5001/api/admin/messages/${messageId}/reply`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(token)
+        },
+        body: JSON.stringify({
+          adminUserId: currentUser.id,
+          replyMessage: selectedMessage.adminReply
+        })
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        showToast(data.error || 'Nem sikerült elmenteni a választ.', 'error');
+        return;
+      }
+
+      setAdminMessages((prev) => prev.map((message) => (
+        message.id === messageId
+          ? { ...message, status: 'replied', repliedAt: new Date().toISOString() }
+          : message
+      )));
+      showToast('Válasz elmentve.', 'success');
+    } catch (error) {
+      console.error('Admin reply mentési hiba:', error);
+      showToast('Hálózati hiba a válasz mentésekor.', 'error');
+    }
   };
 
   const calculateBadgesAndRecords = (workouts) => {
@@ -1810,6 +1942,10 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     'profile': { icon: 'fa-user-circle', text: 'Profil', subtitle: 'Személyes adatok' }
   };
 
+  if (isAdmin) {
+    sectionTitles.admin = { icon: 'fa-user-shield', text: 'Admin', subtitle: 'Üzenetek és felhasználók' };
+  }
+
   return (
     <div className="dashboard-container">
       {/* Sidebar */}
@@ -2219,6 +2355,122 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                 <div className="badge-card locked"><i className="fas fa-chart-line"></i><h4>Rekorddöntő</h4><p>Új rekord</p></div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* PROFILE SECTION */}
+        <div className={`content-section ${currentSection === 'admin' ? 'active' : ''}`}>
+          <div className="card">
+            <div className="section-header">
+              <h2><i className="fas fa-user-shield"></i> Admin felület</h2>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+                  const token = localStorage.getItem('powerplan_token');
+                  if (currentUser.id) {
+                    loadAdminData(currentUser.id, token);
+                  }
+                }}
+              >
+                <i className="fas fa-rotate-right"></i> Frissítés
+              </button>
+            </div>
+
+            {adminLoading ? (
+              <div className="loading-spinner"><i className="fas fa-spinner fa-spin"></i> Admin adatok betöltése...</div>
+            ) : (
+              <div className="admin-layout">
+                <div className="admin-panel">
+                  <div className="admin-panel-header">
+                    <h3>Kapcsolati üzenetek</h3>
+                    <span>{adminMessages.length} db</span>
+                  </div>
+                  <div className="admin-grid">
+                    {adminMessages.map((message) => (
+                      <div key={message.id} className="admin-message-card">
+                        <div className="admin-card-top">
+                          <div>
+                            <h4>{message.subject}</h4>
+                            <p className="admin-meta">{message.name} • {message.email}</p>
+                          </div>
+                          <span className={`admin-status-pill ${message.status}`}>{message.status === 'replied' ? 'Megválaszolva' : 'Új'}</span>
+                        </div>
+                        <p className="admin-message-body">{message.message}</p>
+                        <textarea
+                          className="form-control admin-reply-box"
+                          placeholder="Admin válasz..."
+                          value={message.adminReply || ''}
+                          onChange={(e) => handleAdminMessageReplyChange(message.id, e.target.value)}
+                        />
+                        <div className="admin-card-actions">
+                          <small>{new Date(message.createdAt).toLocaleString('hu-HU')}</small>
+                          <button className="btn btn-primary" onClick={() => saveAdminReply(message.id)}>
+                            <i className="fas fa-paper-plane"></i> Válasz mentése
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {adminMessages.length === 0 && <p className="no-data">Még nincs beérkezett üzenet.</p>}
+                  </div>
+                </div>
+
+                <div className="admin-panel">
+                  <div className="admin-panel-header">
+                    <h3>Felhasználók kezelése</h3>
+                    <span>{adminUsers.length} db</span>
+                  </div>
+                  <div className="admin-grid">
+                    {adminUsers.map((user) => (
+                      <div key={user.id} className="admin-user-card">
+                        <div className="admin-card-top">
+                          <div>
+                            <h4>{user.fullName}</h4>
+                            <p className="admin-meta">#{user.id} • {user.email}</p>
+                          </div>
+                          <label className="admin-role-toggle">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(user.isAdmin)}
+                              onChange={(e) => handleAdminUserFieldChange(user.id, 'isAdmin', e.target.checked)}
+                            />
+                            <span>Admin</span>
+                          </label>
+                        </div>
+                        <div className="profile-info-grid admin-form-grid">
+                          <div className="form-group">
+                            <label>Név</label>
+                            <input className="form-control" type="text" value={user.fullName || ''} onChange={(e) => handleAdminUserFieldChange(user.id, 'fullName', e.target.value)} />
+                          </div>
+                          <div className="form-group">
+                            <label>Email</label>
+                            <input className="form-control" type="email" value={user.email || ''} onChange={(e) => handleAdminUserFieldChange(user.id, 'email', e.target.value)} />
+                          </div>
+                          <div className="form-group">
+                            <label>Cél</label>
+                            <input className="form-control" type="text" value={user.fitnessGoal || ''} onChange={(e) => handleAdminUserFieldChange(user.id, 'fitnessGoal', e.target.value)} />
+                          </div>
+                          <div className="form-group">
+                            <label>Pontok</label>
+                            <input className="form-control" type="number" value={user.totalPoints ?? 0} onChange={(e) => handleAdminUserFieldChange(user.id, 'totalPoints', e.target.value)} />
+                          </div>
+                          <div className="form-group">
+                            <label>Szint</label>
+                            <input className="form-control" type="number" value={user.currentLevel ?? 1} onChange={(e) => handleAdminUserFieldChange(user.id, 'currentLevel', e.target.value)} />
+                          </div>
+                        </div>
+                        <div className="admin-card-actions">
+                          <small>{new Date(user.createdAt).toLocaleDateString('hu-HU')}</small>
+                          <button className="btn btn-primary" onClick={() => saveAdminUser(user.id)}>
+                            <i className="fas fa-save"></i> Mentés
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
