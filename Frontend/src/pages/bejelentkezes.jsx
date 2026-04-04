@@ -40,6 +40,7 @@ function Bejelentkezes({ navigateTo, setIsLoggedIn }) {
   const [formErrors, setFormErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [toast, setToast] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const API_URL = 'http://localhost:5001/api';
 
@@ -106,10 +107,6 @@ function Bejelentkezes({ navigateTo, setIsLoggedIn }) {
     showToast('🔧 Jelszó visszaállítás fejlesztés alatt.', 'warning');
   };
 
-  const handleSocialLogin = (provider) => {
-    showToast(`🔧 ${provider} bejelentkezés fejlesztés alatt.`, 'warning');
-  };
-
   return (
     <div className="bejelentkezes-container">
       <div className="form-container">
@@ -129,7 +126,16 @@ function Bejelentkezes({ navigateTo, setIsLoggedIn }) {
               <label htmlFor="password">Jelszó</label>
               <div className="input-with-icon">
                 <i className="fas fa-lock"></i>
-                <input type="password" id="password" name="password" placeholder="Add meg a jelszavad" value={formData.password} onChange={handleInputChange} className={formErrors.password ? 'input-error' : ''} disabled={isLoading} />
+                <input type={showPassword ? 'text' : 'password'} id="password" name="password" placeholder="Add meg a jelszavad" value={formData.password} onChange={handleInputChange} className={formErrors.password ? 'input-error' : ''} disabled={isLoading} />
+                <button
+                  type="button"
+                  className="password-toggle-btn"
+                  onClick={() => setShowPassword((currentValue) => !currentValue)}
+                  disabled={isLoading}
+                  aria-label={showPassword ? 'Jelszó elrejtése' : 'Jelszó megjelenítése'}
+                >
+                  <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                </button>
               </div>
               {formErrors.password && <span className="error-message">{formErrors.password}</span>}
             </div>
@@ -144,25 +150,11 @@ function Bejelentkezes({ navigateTo, setIsLoggedIn }) {
               {isLoading ? <><i className="fas fa-spinner fa-spin"></i> BEJELENTKEZÉS...</> : 'BEJELENTKEZÉS'}
             </button>
           </form>
-          <div className="divider"><span>VAGY</span></div>
-          <div className="social-login">
-            <button className="social-button facebook" onClick={() => handleSocialLogin('Facebook')} disabled={isLoading}><i className="fab fa-facebook-f"></i></button>
-            <button className="social-button google" onClick={() => handleSocialLogin('Google')} disabled={isLoading}><i className="fab fa-google"></i></button>
-            <button className="social-button apple" onClick={() => handleSocialLogin('Apple')} disabled={isLoading}><i className="fab fa-apple"></i></button>
-          </div>
           <div className="form-footer">
             Még nincs fiókod? <a href="#" onClick={(e) => { e.preventDefault(); navigateTo('regisztracio'); }}>Regisztrálj most!</a>
           </div>
         </div>
       </div>
-      <footer>
-        <div className="footer-content">
-          <div className="footer-column"><h3>Power Plan</h3><p>Edzőtermi alkalmazás, amely segít elérni fitness céljaidat.</p></div>
-          <div className="footer-column"><h3>Gyors linkek</h3><ul className="footer-links"><li><a href="#" onClick={(e) => { e.preventDefault(); navigateTo('home'); }}>Kezdőlap</a></li></ul></div>
-          <div className="footer-column"><h3>Kövess minket</h3><div className="social-icons"><a href="#"><i className="fab fa-facebook-f"></i></a></div></div>
-        </div>
-        <div className="copyright"><p>&copy; 2026 Power Plan Edzőtermi Alkalmazás. Minden jog fenntartva.</p></div>
-      </footer>
       {toast && <div className="toast-container"><Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} /></div>}
     </div>
   );

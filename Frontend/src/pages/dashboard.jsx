@@ -1,6 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Chart as ChartJS, CategoryScale, LinearScale, RadialLinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler } from 'chart.js';
 import { Line, Bar, Radar } from 'react-chartjs-2';
+import * as L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { ALL_GYMS } from '../utils/gymsByCounty';
+import { FOOD_DB, FLAT_FOOD_OPTIONS } from '../utils/foodDatabase';
 import './dashboard.css';
 
 ChartJS.register(CategoryScale, LinearScale, RadialLinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
@@ -43,6 +47,96 @@ const formatHungarianLongDate = (dateInput) => {
     .join(', ');
 };
 
+const HUNGARY_CENTER = [47.1625, 19.5033];
+const HUNGARY_BOUNDS = [
+  [45.7, 15.9],
+  [48.7, 22.95]
+];
+const HUNGARY_LAT_BOUNDS = {
+  min: HUNGARY_BOUNDS[0][0],
+  max: HUNGARY_BOUNDS[1][0]
+};
+const HUNGARY_LNG_BOUNDS = {
+  min: HUNGARY_BOUNDS[0][1],
+  max: HUNGARY_BOUNDS[1][1]
+};
+const NEARBY_RADIUS_KM = 45;
+
+const toRadians = (value) => (value * Math.PI) / 180;
+
+const calculateDistanceKm = (lat1, lng1, lat2, lng2) => {
+  const earthRadiusKm = 6371;
+  const deltaLat = toRadians(lat2 - lat1);
+  const deltaLng = toRadians(lng2 - lng1);
+  const a =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
+    Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2);
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const formatDistance = (distanceKm) => {
+  if (distanceKm < 10) return `${distanceKm.toFixed(1)} km`;
+  return `${Math.round(distanceKm)} km`;
+};
+
+const normalizeSearchText = (value) => value
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLocaleLowerCase('hu-HU');
+
+const MEAL_TYPE_CATEGORY_MAP = {
+  breakfast: ['breads', 'dairy', 'fruits', 'sweets'],
+  lunch: ['meats', 'vegetables', 'dairy', 'breads'],
+  dinner: ['meats', 'vegetables', 'dairy', 'breads'],
+  snack: ['fruits', 'dairy', 'sweets', 'breads']
+};
+
+const isBreadFood = (food) => (
+  food.category === 'Reggeli ételek' && /kenyer|kifli|zsemle|kalacs|csiga|taska|pogacsa|croissant|palacsinta|piritos|bagel|lángos|melegszendvics|keksz/i.test(normalizeSearchText(food.name))
+);
+
+const isSweetFood = (food) => (
+  food.category === 'Snackek és Édességek' ||
+  (food.category === 'Reggeli ételek' && /mez|lekvar|nutella|csiga|taska|granola|palacsinta/i.test(normalizeSearchText(food.name)))
+);
+
+const FOOD_CATEGORY_OPTIONS = [
+  { key: 'dairy', label: 'Tejtermékek', matches: (food) => food.category === 'Tejtermékek és Tojás' },
+  { key: 'vegetables', label: 'Zöldségek', matches: (food) => food.category === 'Zöldségek' },
+  { key: 'fruits', label: 'Gyümölcsök', matches: (food) => food.category === 'Gyümölcsök' },
+  { key: 'meats', label: 'Húsok - Halak', matches: (food) => food.category === 'Húsok és Halak' || food.category === 'Ebéd és Vacsora (Készételek)' },
+  { key: 'sweets', label: 'Édességek', matches: (food) => isSweetFood(food) },
+  { key: 'breads', label: 'Kenyérfélék', matches: (food) => isBreadFood(food) }
+];
+
+const isWithinHungary = (lat, lng) => (
+  lat >= HUNGARY_LAT_BOUNDS.min &&
+  lat <= HUNGARY_LAT_BOUNDS.max &&
+  lng >= HUNGARY_LNG_BOUNDS.min &&
+  lng <= HUNGARY_LNG_BOUNDS.max
+);
+
+const getMarkerPosition = (gym, duplicateIndex) => {
+  const angle = (duplicateIndex % 6) * (Math.PI / 3);
+  const ring = Math.floor(duplicateIndex / 6) + 1;
+  const offset = 0.008 * ring;
+
+  return [
+    gym.lat + Math.sin(angle) * offset,
+    gym.lng + Math.cos(angle) * offset
+  ];
+};
+
+const gymMarkerIcon = L.divIcon({
+  className: 'gym-leaflet-marker',
+  html: '<span></span>',
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+  popupAnchor: [0, -8]
+});
+
 // GYAKORLAT ADATBÁZIS (TELJES)
 const EXERCISE_DB_WITH_VIDEOS = {
   'Mell': [
@@ -74,55 +168,6 @@ const EXERCISE_DB_WITH_VIDEOS = {
   'Has': [
     { name: 'Hasprés', video: 'https://www.youtube.com/embed/9Pp5fXF7I9c', difficulty: 'beginner' },
     { name: 'Plank', video: 'https://www.youtube.com/embed/pSHjTRCQxIw', difficulty: 'beginner' }
-  ]
-};
-
-// ÉTELEK ADATBÁZIS (TELJES)
-const FOOD_DB = {
-  'Reggeli': [
-    { name: 'Zabkása banánnal', calories: 350 },
-    { name: 'Zabkása áfonyával', calories: 320 },
-    { name: 'Tojásrántotta (3 tojás)', calories: 320 },
-    { name: 'Omlett sonkával', calories: 380 },
-    { name: 'Görög joghurt mézzel', calories: 280 },
-    { name: 'Teljes kiőrlésű szendvics', calories: 400 },
-    { name: 'Protein shake', calories: 200 },
-    { name: 'Rizskása fahéjjal', calories: 280 },
-    { name: 'Chia puding', calories: 310 },
-    { name: 'Palacsinta túróval', calories: 420 }
-  ],
-  'Ebéd': [
-    { name: 'Grillezett csirkemell rizzsel', calories: 550 },
-    { name: 'Csirkemell édesburgonyával', calories: 530 },
-    { name: 'Marhapörkölt tarhonyával', calories: 650 },
-    { name: 'Sült lazac quinoával', calories: 580 },
-    { name: 'Túrós csusza', calories: 480 },
-    { name: 'Zöldséges wok csirkével', calories: 420 },
-    { name: 'Csirkepaprikás nokedlivel', calories: 580 },
-    { name: 'Spagetti bolognese', calories: 620 },
-    { name: 'Penne csirkével', calories: 540 }
-  ],
-  'Vacsora': [
-    { name: 'Ropogós csirkemell salátával', calories: 420 },
-    { name: 'Grillezett csirkemell salátával', calories: 380 },
-    { name: 'Omlett zöldségekkel', calories: 350 },
-    { name: 'Túró zöldségekkel', calories: 280 },
-    { name: 'Halrudacska édesburgonyával', calories: 450 },
-    { name: 'Sült lazac salátával', calories: 410 },
-    { name: 'Tonhal saláta', calories: 320 },
-    { name: 'Csirkemell sajttal', calories: 450 }
-  ],
-  'Snack': [
-    { name: 'Alma', calories: 95 },
-    { name: 'Körte', calories: 100 },
-    { name: 'Banán', calories: 105 },
-    { name: 'Narancs', calories: 62 },
-    { name: 'Fehérjeszelet', calories: 180 },
-    { name: 'Dió (30g)', calories: 200 },
-    { name: 'Mandula (30g)', calories: 175 },
-    { name: 'Skyr joghurt', calories: 120 },
-    { name: 'Protein puding', calories: 150 },
-    { name: 'Sárgarépa', calories: 41 }
   ]
 };
 
@@ -235,42 +280,251 @@ const WeekCalendar = ({ selectedDate, onDateChange, onWeekChange }) => {
 };
 
 // TÉRKÉP KOMPONENS
-const GymMap = () => {
-  const gyms = [
-    { name: 'Life1 Fitness', address: 'Budapest, Teréz krt. 55.', phone: '+36 1 123 4567', rating: 4.5 },
-    { name: 'Cutler Fitness', address: 'Budapest, Rákóczi út 12.', phone: '+36 1 234 5678', rating: 4.7 },
-    { name: 'Scitec Gold Gym', address: 'Budapest, Váci út 45.', phone: '+36 1 345 6789', rating: 4.8 },
-    { name: 'World Class', address: 'Budapest, Andrássy út 66.', phone: '+36 1 456 7890', rating: 4.6 },
-    { name: '4% Fitness', address: 'Budapest, Lehel u. 15.', phone: '+36 1 567 8901', rating: 4.4 },
-    { name: 'Gilda Max Fitness', address: 'Budapest, Dózsa György út 78.', phone: '+36 1 678 9012', rating: 4.3 }
-  ];
+const GymMap = ({ isActive }) => {
+  const [mapMode, setMapMode] = useState('country');
+  const [nearbyCenter, setNearbyCenter] = useState(null);
+  const [mapMessage, setMapMessage] = useState(`Az országos nézet mind a ${ALL_GYMS.length} rögzített edzőtermet egyszerre mutatja Magyarország térképén.`);
+  const mapElementRef = useRef(null);
+  const leafletMapRef = useRef(null);
+  const markerLayerRef = useRef(null);
 
-  const openGoogleMaps = (gym) => {
-    const query = encodeURIComponent(`${gym.name} ${gym.address}`);
-    window.open(`https://www.google.com/maps/search/${query}`, '_blank');
+  const openGoogleMaps = () => {
+    if (mapMode === 'nearby' && nearbyCenter) {
+      window.open(`https://www.google.com/maps/search/${encodeURIComponent('edzőterem')}/@${nearbyCenter.lat},${nearbyCenter.lng},13z`, '_blank');
+      return;
+    }
+
+    window.open(`https://www.google.com/maps/search/${encodeURIComponent('edzőterem Magyarország')}/@${HUNGARY_CENTER[0]},${HUNGARY_CENTER[1]},7z`, '_blank');
+  };
+
+  useEffect(() => {
+    if (!mapElementRef.current || leafletMapRef.current) return;
+
+    const map = L.map(mapElementRef.current, {
+      zoomControl: true,
+      scrollWheelZoom: true,
+      maxBounds: HUNGARY_BOUNDS,
+      maxBoundsViscosity: 1.0,
+      minZoom: 7
+    }).setView(HUNGARY_CENTER, 7);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap közreműködők',
+      noWrap: true,
+      bounds: HUNGARY_BOUNDS
+    }).addTo(map);
+
+    markerLayerRef.current = L.layerGroup().addTo(map);
+    leafletMapRef.current = map;
+
+    window.requestAnimationFrame(() => {
+      map.invalidateSize();
+      map.fitBounds(HUNGARY_BOUNDS, { padding: [12, 12], animate: false });
+    });
+
+    return () => {
+      markerLayerRef.current?.clearLayers();
+      map.remove();
+      markerLayerRef.current = null;
+      leafletMapRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isActive || !leafletMapRef.current) return;
+
+    const map = leafletMapRef.current;
+    const refreshMapSize = () => {
+      map.invalidateSize();
+      map.panInsideBounds(HUNGARY_BOUNDS, { animate: false });
+    };
+
+    const timeoutId = window.setTimeout(refreshMapSize, 120);
+    window.requestAnimationFrame(refreshMapSize);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isActive, mapMode]);
+
+  useEffect(() => {
+    if (!leafletMapRef.current || !markerLayerRef.current) return;
+
+    const map = leafletMapRef.current;
+    const markerLayer = markerLayerRef.current;
+    markerLayer.clearLayers();
+
+    const gymsWithDistance = ALL_GYMS.map((gym) => {
+      if (!nearbyCenter) {
+        return { ...gym, distanceKm: null };
+      }
+
+      return {
+        ...gym,
+        distanceKm: calculateDistanceKm(nearbyCenter.lat, nearbyCenter.lng, gym.lat, gym.lng)
+      };
+    });
+
+    const gymsToRender = mapMode === 'nearby' && nearbyCenter
+      ? gymsWithDistance
+          .filter((gym) => gym.distanceKm <= NEARBY_RADIUS_KM)
+          .sort((firstGym, secondGym) => firstGym.distanceKm - secondGym.distanceKm)
+          .slice(0, 25)
+      : gymsWithDistance;
+
+    const fallbackNearbyGyms = mapMode === 'nearby' && nearbyCenter && gymsToRender.length === 0
+      ? gymsWithDistance
+          .sort((firstGym, secondGym) => firstGym.distanceKm - secondGym.distanceKm)
+          .slice(0, 12)
+      : gymsToRender;
+
+    const finalGyms = fallbackNearbyGyms;
+    const duplicateCounts = {};
+    const markerBounds = [];
+
+    finalGyms.forEach((gym) => {
+      const duplicateIndex = duplicateCounts[gym.cityLabel] || 0;
+      duplicateCounts[gym.cityLabel] = duplicateIndex + 1;
+      const [markerLat, markerLng] = getMarkerPosition(gym, duplicateIndex);
+      const distanceLine = gym.distanceKm !== null ? `<p><strong>Távolság:</strong> ${formatDistance(gym.distanceKm)}</p>` : '';
+      const marker = L.marker([markerLat, markerLng], { icon: gymMarkerIcon })
+        .bindTooltip(gym.name, {
+          permanent: false,
+          sticky: true,
+          direction: 'top',
+          offset: [0, -10],
+          className: 'gym-marker-label'
+        })
+        .bindPopup(`
+        <div class="gym-popup">
+          <h4>${gym.name}</h4>
+          <p><strong>Vármegye:</strong> ${gym.countyLabel}</p>
+          <p><strong>Város:</strong> ${gym.cityLabel}</p>
+          ${distanceLine}
+          <a href="https://www.google.com/maps/search/${encodeURIComponent(`${gym.name} ${gym.cityLabel}`)}" target="_blank" rel="noreferrer">Megnyitás Google Mapsben</a>
+        </div>
+      `);
+
+      marker.addTo(markerLayer);
+      markerBounds.push([markerLat, markerLng]);
+    });
+
+    if (mapMode === 'nearby' && nearbyCenter) {
+      L.circleMarker([nearbyCenter.lat, nearbyCenter.lng], {
+        radius: 8,
+        weight: 3,
+        color: '#0f4c5c',
+        fillColor: '#2a9d8f',
+        fillOpacity: 0.95
+      })
+        .bindTooltip('Itt vagy most', {
+          permanent: false,
+          sticky: true,
+          direction: 'top',
+          offset: [0, -10],
+          className: 'gym-marker-label current-location-label'
+        })
+        .bindPopup('A jelenlegi helyzeted')
+        .addTo(markerLayer);
+
+      markerBounds.push([nearbyCenter.lat, nearbyCenter.lng]);
+    }
+
+    if (mapMode === 'nearby' && nearbyCenter) {
+      const withinRadiusCount = gymsWithDistance.filter((gym) => gym.distanceKm <= NEARBY_RADIUS_KM).length;
+      if (withinRadiusCount > 0) {
+        setMapMessage(`A közelben nézet ${withinRadiusCount} edzőtermet talált ${NEARBY_RADIUS_KM} km-en belül. A térképen a legközelebbi ${finalGyms.length} terem látszik.`);
+      } else {
+        setMapMessage('A közelben nézetben nem volt 45 km-en belül találat, ezért a térkép a legközelebbi edzőtermeket mutatja.' );
+      }
+    } else {
+      setMapMessage(`Az országos nézet mind a ${ALL_GYMS.length} rögzített edzőtermet egyszerre mutatja Magyarország térképén.`);
+    }
+
+    if (markerBounds.length > 0) {
+      map.fitBounds(markerBounds, { padding: [24, 24], animate: false });
+      if (mapMode === 'country') {
+        map.fitBounds(HUNGARY_BOUNDS, { padding: [12, 12], animate: false });
+      }
+    } else {
+      map.fitBounds(HUNGARY_BOUNDS, { padding: [12, 12], animate: false });
+    }
+
+    map.panInsideBounds(HUNGARY_BOUNDS, { animate: false });
+  }, [mapMode, nearbyCenter]);
+
+  const showCountrywideGyms = () => {
+    setMapMode('country');
+  };
+
+  const showNearbyGyms = () => {
+    if (!navigator.geolocation) {
+      setMapMessage('A böngésző nem támogatja a helymeghatározást, ezért csak az országos nézet érhető el.');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const center = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        };
+
+        if (!isWithinHungary(center.lat, center.lng)) {
+          setMapMode('country');
+          setMapMessage('A közelben nézet csak magyarországi helyzettel működik, ezért az országos nézet maradt aktív.');
+          return;
+        }
+
+        setNearbyCenter(center);
+        setMapMode('nearby');
+      },
+      () => {
+        setMapMode('country');
+        setMapMessage('A helymeghatározás nem sikerült vagy nincs engedélyezve. Az országos nézet marad aktív.');
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   };
 
   return (
     <div className="gyms-container">
       <div className="gyms-header-banner">
         <i className="fas fa-map-marked-alt"></i>
-        <h3>Magyarország legjobb edzőtermei</h3>
-        <p>Kattints egy teremre az útvonaltervhez →</p>
+        <h3>Magyarország edzőtermei térképen</h3>
+        <p>{mapMessage}</p>
       </div>
-      <div className="gyms-list">
-        {gyms.map((gym, index) => (
-          <div key={index} className="gym-card" onClick={() => openGoogleMaps(gym)}>
-            <div className="gym-header">
-              <h3>{gym.name}</h3>
-              <span className="gym-rating"><i className="fas fa-star"></i> {gym.rating} / 5</span>
-            </div>
-            <p className="gym-address"><i className="fas fa-map-marker-alt"></i> {gym.address}</p>
-            <p className="gym-phone"><i className="fas fa-phone"></i> {gym.phone}</p>
-            <button className="btn-gym-direction" onClick={(e) => { e.stopPropagation(); openGoogleMaps(gym); }}>
-              <i className="fas fa-directions"></i> Útvonalterv
-            </button>
-          </div>
-        ))}
+      <div className="gym-map-mode-switch">
+        <button
+          type="button"
+          className={`gym-mode-btn ${mapMode === 'country' ? 'active' : ''}`}
+          onClick={showCountrywideGyms}
+        >
+          <i className="fas fa-globe-europe"></i> Országos
+        </button>
+        <button
+          type="button"
+          className={`gym-mode-btn ${mapMode === 'nearby' ? 'active' : ''}`}
+          onClick={showNearbyGyms}
+        >
+          <i className="fas fa-location-crosshairs"></i> Közelben
+        </button>
+      </div>
+      <div className="gym-map-meta-row">
+        <div className="gym-map-count-card">
+          <span className="gym-map-count-label">Látható helyek</span>
+          <strong>{mapMode === 'nearby' && nearbyCenter ? 'Közeli termek' : 'Országos lista'}</strong>
+          <span>{mapMode === 'nearby' && nearbyCenter ? 'Geolokáció alapján szűrve' : `${ALL_GYMS.length} terem az adatbázisban`}</span>
+        </div>
+      </div>
+      <div className="gym-map-frame-wrap">
+        <div ref={mapElementRef} className="gym-map-frame" aria-label="Magyarországi edzőtermek térképe"></div>
+      </div>
+      <div className="gym-map-actions">
+        <button className="btn btn-secondary gym-expand-btn" onClick={openGoogleMaps}>
+          <i className="fas fa-expand"></i> Megnyitás nagy térképen
+        </button>
+        <button className="btn-gym-direction" onClick={openGoogleMaps}>
+          <i className="fas fa-directions"></i> Megnyitás Google Mapsben
+        </button>
       </div>
     </div>
   );
@@ -317,6 +571,10 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const [workoutTime, setWorkoutTime] = useState(0);
   const [modalOpen, setModalOpen] = useState(null);
   const [selectedFood, setSelectedFood] = useState(null);
+  const [mealSearchQuery, setMealSearchQuery] = useState('');
+  const [mealGrams, setMealGrams] = useState('100');
+  const [selectedMealType, setSelectedMealType] = useState('');
+  const [selectedFoodCategory, setSelectedFoodCategory] = useState('');
   const [mealToDelete, setMealToDelete] = useState(null);
   const [showDeleteMealModal, setShowDeleteMealModal] = useState(false);
   
@@ -367,6 +625,25 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const [weightHistory, setWeightHistory] = useState([]);
   const [nutritionSelectedDate, setNutritionSelectedDate] = useState(new Date());
   const [currentDayKey, setCurrentDayKey] = useState(formatLocalDate(new Date()));
+
+  const normalizedMealSearch = normalizeSearchText(mealSearchQuery.trim());
+  const availableCategoryOptions = FOOD_CATEGORY_OPTIONS;
+  const activeCategoryOption = FOOD_CATEGORY_OPTIONS.find((option) => option.key === selectedFoodCategory) || null;
+  const parsedMealGrams = mealGrams === '' ? null : Number(mealGrams);
+  const filteredFoodOptions = FLAT_FOOD_OPTIONS.filter((food) => {
+    if (activeCategoryOption && !activeCategoryOption.matches(food)) {
+      return false;
+    }
+
+    if (!normalizedMealSearch) {
+      return true;
+    }
+
+    return normalizeSearchText(food.name).includes(normalizedMealSearch);
+  }).slice(0, 40);
+  const calculatedMealCalories = selectedFood && parsedMealGrams !== null && parsedMealGrams > 0
+    ? Math.round((selectedFood.calories * parsedMealGrams) / 100)
+    : '';
   
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [weekWorkouts, setWeekWorkouts] = useState([]);
@@ -883,6 +1160,21 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     return age;
   };
 
+  const handleFoodSelection = (value) => {
+    if (!value) {
+      setSelectedFood(null);
+      return;
+    }
+
+    const selectedOption = FLAT_FOOD_OPTIONS.find((food) => food.value === value);
+    if (!selectedOption) {
+      setSelectedFood(null);
+      return;
+    }
+
+    setSelectedFood(selectedOption);
+  };
+
   const handleMealSubmit = async (e) => {
     e.preventDefault();
     const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
@@ -892,12 +1184,22 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
       return;
     }
 
+    if (!selectedFood) {
+      showToast('Válassz ki egy ételt a listából.', 'warning');
+      return;
+    }
+
+    if (parsedMealGrams === null || Number.isNaN(parsedMealGrams) || parsedMealGrams <= 0) {
+      showToast('Adj meg egy ervenyes gramm mennyiseget.', 'warning');
+      return;
+    }
+
     const mealData = {
       userId: currentUser.id, 
-      mealType: document.getElementById('mealType').value,
-      foodName: selectedFood?.name || document.getElementById('mealName').value, 
-      description: document.getElementById('mealDescription')?.value || '',
-      calories: selectedFood?.calories || document.getElementById('mealCalories').value,
+      mealType: selectedMealType,
+      foodName: selectedFood.name,
+      description: '',
+      calories: calculatedMealCalories,
       consumedDate: formatLocalDate(nutritionSelectedDate)
     };
 
@@ -913,6 +1215,10 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         loadDashboardData(currentUser.id, token);
         loadNutritionWeek(nutritionSelectedDate);
         setSelectedFood(null);
+        setMealSearchQuery('');
+        setMealGrams('100');
+        setSelectedMealType('');
+        setSelectedFoodCategory('');
         document.getElementById('mealLogForm')?.reset();
       }
     } catch (error) { 
@@ -1169,11 +1475,22 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const closeModal = () => { 
     setModalOpen(null); 
     setSelectedFood(null);
+    setMealSearchQuery('');
+    setMealGrams('100');
+    setSelectedMealType('');
+    setSelectedFoodCategory('');
     setEditingWorkoutId(null);
     setWorkoutFormDetails({ name: '', type: '', day: '' });
     setExercisesList([{ id: 1, muscleGroup: '', name: '', sets: [{ weight: '', reps: '', rpe: '' }] }]);
   };
-  const showMealLogModal = () => setModalOpen('mealLog');
+  const showMealLogModal = () => {
+    setSelectedFood(null);
+    setMealSearchQuery('');
+    setMealGrams('100');
+    setSelectedMealType('');
+    setSelectedFoodCategory('');
+    setModalOpen('mealLog');
+  };
   const showWorkoutModal = () => {
     setEditingWorkoutId(null);
     setWorkoutFormDetails({ name: '', type: '', day: '' });
@@ -1700,7 +2017,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         {/* GYMS SECTION */}
         <div className={`content-section ${currentSection === 'gyms' ? 'active' : ''}`}>
           <div className="card">
-            <GymMap />
+            <GymMap isActive={currentSection === 'gyms'} />
           </div>
         </div>
 
@@ -1872,7 +2189,15 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
           <form id="mealLogForm" onSubmit={handleMealSubmit}>
             <div className="form-group">
               <label>Étkezés típusa</label>
-              <select className="form-control" id="mealType" required onChange={() => setSelectedFood(null)}>
+              <select
+                className="form-control"
+                id="mealType"
+                required
+                value={selectedMealType}
+                onChange={(e) => {
+                  setSelectedMealType(e.target.value);
+                }}
+              >
                 <option value="">Válasszon...</option>
                 <option value="breakfast">Reggeli</option>
                 <option value="lunch">Ebéd</option>
@@ -1882,39 +2207,78 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
             </div>
             
             <div className="form-group">
-              <label>Válassz előre megadott ételt</label>
-              <select className="form-control" onChange={(e) => {
-                if (e.target.value) {
-                  const [mealType, foodIndex] = e.target.value.split('|');
-                  const food = FOOD_DB[mealType][parseInt(foodIndex)];
-                  setSelectedFood(food);
-                  document.getElementById('mealName').value = food.name;
-                  document.getElementById('mealCalories').value = food.calories;
-                }
-              }}>
-                <option value="">-- Válassz ételt --</option>
-                {Object.keys(FOOD_DB).map(mealType => (
-                  <optgroup key={mealType} label={mealType}>
-                    {FOOD_DB[mealType].map((food, idx) => (
-                      <option key={idx} value={`${mealType}|${idx}`}>{food.name} - {food.calories} kcal</option>
-                    ))}
-                  </optgroup>
+              <label>Kategória</label>
+              <select
+                className="form-control"
+                value={selectedFoodCategory}
+                onChange={(e) => {
+                  setSelectedFoodCategory(e.target.value);
+                  setSelectedFood(null);
+                }}
+              >
+                <option value="">Összes kategória</option>
+                {availableCategoryOptions.map((option) => (
+                  <option key={option.key} value={option.key}>{option.label}</option>
                 ))}
               </select>
             </div>
-            
+
             <div className="form-group">
               <label>Étel neve</label>
-              <input type="text" className="form-control" id="mealName" required />
+              <div className="food-search-wrap">
+                <i className="fas fa-search"></i>
+                <input
+                  type="text"
+                  className="form-control food-search-input"
+                  placeholder="Keresés étel neve alapján..."
+                  value={mealSearchQuery}
+                  onChange={(e) => setMealSearchQuery(e.target.value)}
+                />
+              </div>
             </div>
+
             <div className="form-group">
-              <label>Leírás (opcionális)</label>
-              <input type="text" className="form-control" id="mealDescription" />
+              <label>Találatok</label>
+              <div className="food-search-results">
+                {filteredFoodOptions.length === 0 && <div className="food-search-empty">Nincs találat a keresésre.</div>}
+                {filteredFoodOptions.map((food) => (
+                  <button
+                    key={food.value}
+                    type="button"
+                    className={`food-search-result-item ${selectedFood?.value === food.value ? 'active' : ''}`}
+                    onClick={() => handleFoodSelection(food.value)}
+                  >
+                    <span className="food-search-result-name">{food.name}</span>
+                    <span className="food-search-result-meta">{food.category} • {food.calories} kcal / 100 g</span>
+                  </button>
+                ))}
+              </div>
+              <small className="food-picker-help">Az értékek 100 g-ra vonatkoznak, kivéve ahol az adag külön jelölve van.</small>
             </div>
+
             <div className="form-group">
-              <label>Kalória (kcal)</label>
-              <input type="number" className="form-control" id="mealCalories" required />
+              <label>Elfogyasztott mennyiség (gramm)</label>
+              <input
+                type="number"
+                className="form-control"
+                id="mealGrams"
+                min="1"
+                step="1"
+                required
+                value={mealGrams}
+                inputMode="numeric"
+                onWheel={(e) => e.currentTarget.blur()}
+                onChange={(e) => setMealGrams(e.target.value)}
+              />
             </div>
+
+            <div className="form-group">
+              <label>Számolt kalória</label>
+              <div className="food-calorie-preview">
+                {selectedFood ? `${calculatedMealCalories} kcal` : 'Válassz ételt a kalóriaszámításhoz.'}
+              </div>
+            </div>
+
             <div className="modal-buttons">
               <button type="button" className="btn btn-secondary" onClick={closeModal}>Mégse</button>
               <button type="submit" className="btn btn-primary">Naplózás</button>
@@ -1969,8 +2333,8 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                         <table>
                           <thead>
                             <tr>
-                              <th>Szett</th>
-                              <th>Súly (kg)</th>
+                              <th>#</th>
+                              <th>Súly</th>
                               <th>Ismétlés</th>
                               <th>RPE</th>
                             </tr>

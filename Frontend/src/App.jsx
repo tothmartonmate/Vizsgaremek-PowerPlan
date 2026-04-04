@@ -6,18 +6,17 @@ import Regisztracio from './pages/regisztracio';
 import Bejelentkezes from './pages/bejelentkezes';
 import Dashboard from './pages/dashboard';
 import Questionnaire from './pages/questionnarie';
+import TermsPage from './pages/TermsPage';
+import PrivacyPage from './pages/PrivacyPage';
 
 function App() {
   const [currentPage, setCurrentPage] = useState('home');
   const [showDemoModal, setShowDemoModal] = useState(false);
-  const [showPlanModal, setShowPlanModal] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('powerplan_dark_mode');
     return saved !== null ? saved === 'true' : false;
   });
-
-  const [selectedPlan, setSelectedPlan] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
@@ -46,13 +45,27 @@ function App() {
     window.scrollTo(0, 0);
   };
 
+  const navigateToHomeSection = (sectionId) => {
+    setCurrentPage('home');
+    window.setTimeout(() => {
+      const element = document.getElementById(sectionId);
+      if (element) {
+        window.scrollTo({
+          top: element.offsetTop - 80,
+          behavior: 'smooth'
+        });
+      } else {
+        window.scrollTo(0, 0);
+      }
+    }, 80);
+  };
+
   const handleShowDemoModal = () => {
     setShowDemoModal(true);
   };
 
   const handleCloseModal = () => {
     setShowDemoModal(false);
-    setShowPlanModal(false);
     setShowLogoutModal(false);
   };
 
@@ -93,33 +106,6 @@ function App() {
     
     setIsLoggedIn(true);
     navigateTo('dashboard');
-  };
-
-  const handleSelectPlan = (planType) => {
-    const plans = {
-      'basic': {
-        title: 'Alap Csomag',
-        description: '4.990 Ft/hó - Alap szolgáltatások: edzésnapló, statisztikák, 3 előre megírt edzésprogram.'
-      },
-      'premium': {
-        title: 'Prémium Csomag',
-        description: '8.990 Ft/hó - Minden az Alap csomagból + személyre szabott edzéstervek, teljesítményelemzés, korlátlan programok.'
-      },
-      'pro': {
-        title: 'Pro Csomag',
-        description: '12.990 Ft/hó - Minden a Prémium csomagból + részletes étrend-tervezés, heti edzői konzultáció, prioritás ügyfélszolgálat.'
-      }
-    };
-    
-    const plan = plans[planType];
-    setSelectedPlan(plan);
-    localStorage.setItem('powerplan_selected_plan', planType);
-    setShowPlanModal(true);
-  };
-
-  const handleProceedToRegistration = () => {
-    handleCloseModal();
-    navigateTo('regisztracio');
   };
 
   const handleContactSubmit = (e) => {
@@ -229,48 +215,6 @@ function App() {
         </div>
       </section>
 
-      <section className="pricing" id="pricing">
-        <div className="section-title">
-          <h2>Áraink</h2>
-          <p>Válaszd ki a számodra legmegfelelőbb csomagot</p>
-        </div>
-        <div className="pricing-grid">
-          <div className="pricing-card">
-            <div className="pricing-icon"><i className="fas fa-user"></i></div>
-            <h3>Alap</h3>
-            <div className="price">4.990 Ft<span>/hó</span></div>
-            <ul className="pricing-features">
-              <li><i className="fas fa-check"></i> Korlátlan edzésnapló</li>
-              <li><i className="fas fa-check"></i> Alap statisztikák</li>
-              <li><i className="fas fa-times"></i> Személyre szabott tervek</li>
-            </ul>
-            <button className="cta-button" onClick={() => handleSelectPlan('basic')}>KIVÁLASZTÁS</button>
-          </div>
-          <div className="pricing-card featured">
-            <div className="pricing-icon"><i className="fas fa-user-friends"></i></div>
-            <h3>Prémium</h3>
-            <div className="price">8.990 Ft<span>/hó</span></div>
-            <ul className="pricing-features">
-              <li><i className="fas fa-check"></i> Minden az Alap csomagból</li>
-              <li><i className="fas fa-check"></i> Személyre szabott edzéstervek</li>
-              <li><i className="fas fa-check"></i> Alap étrend-tervezés</li>
-            </ul>
-            <button className="cta-button" onClick={() => handleSelectPlan('premium')}>KIVÁLASZTÁS</button>
-          </div>
-          <div className="pricing-card">
-            <div className="pricing-icon"><i className="fas fa-crown"></i></div>
-            <h3>Pro</h3>
-            <div className="price">12.990 Ft<span>/hó</span></div>
-            <ul className="pricing-features">
-              <li><i className="fas fa-check"></i> Minden a Prémium csomagból</li>
-              <li><i className="fas fa-check"></i> Részletes étrend-tervezés</li>
-              <li><i className="fas fa-check"></i> Heti egyéni edzői konzultáció</li>
-            </ul>
-            <button className="cta-button" onClick={() => handleSelectPlan('pro')}>KIVÁLASZTÁS</button>
-          </div>
-        </div>
-      </section>
-
       <section className="contact" id="contact">
         <div className="section-title">
           <h2>Kapcsolat</h2>
@@ -301,11 +245,29 @@ function App() {
         <div className="footer-content">
           <div className="footer-column">
             <h3>Power Plan</h3>
-            <p>Edzőtermi alkalmazás, amely segít elérni fitness céljaidat.</p>
+            <p>Edzőtermi alkalmazás, amely segít elérni fitness céljaidat. Éld át a változást velünk!</p>
+          </div>
+          <div className="footer-column">
+            <h3>Gyors linkek</h3>
+            <ul className="footer-links">
+              <li><a href="#" onClick={(e) => { e.preventDefault(); navigateTo('home'); }}>Kezdőlap</a></li>
+              <li><a href="#" onClick={(e) => { e.preventDefault(); navigateToHomeSection('services'); }}>Szolgáltatások</a></li>
+              <li><a href="#" onClick={(e) => { e.preventDefault(); navigateToHomeSection('about'); }}>Rólunk</a></li>
+              <li><a href="#" onClick={(e) => { e.preventDefault(); navigateToHomeSection('contact'); }}>Kapcsolat</a></li>
+            </ul>
+          </div>
+          <div className="footer-column">
+            <h3>Kövess minket</h3>
+            <div className="social-icons">
+              <a href="#"><i className="fab fa-facebook-f"></i></a>
+              <a href="#"><i className="fab fa-instagram"></i></a>
+              <a href="#"><i className="fab fa-youtube"></i></a>
+              <a href="#"><i className="fab fa-tiktok"></i></a>
+            </div>
           </div>
         </div>
         <div className="copyright">
-          <p>&copy; 2024 Power Plan Edzőtermi Alkalmazás. Minden jog fenntartva.</p>
+          <p>&copy; 2026 Power Plan Edzőtermi Alkalmazás. Minden jog fenntartva.</p>
         </div>
       </footer>
 
@@ -317,19 +279,6 @@ function App() {
             <div className="modal-buttons">
               <button className="cta-button" onClick={handleStartDemo}>DEMÓ INDÍTÁSA</button>
               <button className="cta-button secondary" onClick={handleCloseModal}>MÉGSE</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showPlanModal && selectedPlan && (
-        <div className="modal active" id="planModal">
-          <div className="modal-content">
-            <h3 id="planTitle">{selectedPlan.title}</h3>
-            <p id="planDescription">{selectedPlan.description}</p>
-            <div className="modal-buttons">
-              <button className="cta-button" onClick={handleProceedToRegistration}>Tovább a regisztrációhoz</button>
-              <button className="cta-button secondary" onClick={handleCloseModal}>Mégse</button>
             </div>
           </div>
         </div>
@@ -350,6 +299,8 @@ function App() {
     />
   );
   const renderQuestionnairePage = () => <Questionnaire navigateTo={navigateTo} setIsLoggedIn={setIsLoggedIn} />;
+  const renderTermsPage = () => <TermsPage navigateTo={navigateTo} />;
+  const renderPrivacyPage = () => <PrivacyPage navigateTo={navigateTo} />;
 
   return (
     <>
@@ -367,7 +318,7 @@ function App() {
               <>
                 <li><a href="#" onClick={() => navigateTo('regisztracio')}>REGISZTRÁCIÓ</a></li>
                 <li><a href="#" onClick={() => navigateTo('bejelentkezes')}>BEJELENTKEZÉS</a></li>
-                <li><a href="#" onClick={() => navigateTo('home')}>SZOLGÁLTATÁSAINK</a></li>
+                <li><a href="#" onClick={(e) => { e.preventDefault(); navigateToHomeSection('services'); }}>SZOLGÁLTATÁSAINK</a></li>
               </>
             )}
           </ul>
@@ -379,8 +330,7 @@ function App() {
               </>
             ) : (
               <>
-                <li><a href="#" onClick={() => navigateTo('home')}>ÁRAK</a></li>
-                <li><a href="#" onClick={() => navigateTo('home')}>KAPCSOLAT</a></li>
+                <li><a href="#" onClick={(e) => { e.preventDefault(); navigateToHomeSection('contact'); }}>KAPCSOLAT</a></li>
               </>
             )}
           </ul>
@@ -394,7 +344,9 @@ function App() {
         : currentPage === 'regisztracio' ? renderRegisztracioPage() 
         : currentPage === 'bejelentkezes' ? renderBejelentkezesPage()
         : currentPage === 'dashboard' ? renderDashboardPage()
-        : currentPage === 'questionnaire' ? renderQuestionnairePage() : null
+        : currentPage === 'questionnaire' ? renderQuestionnairePage()
+        : currentPage === 'terms' ? renderTermsPage()
+        : currentPage === 'privacy' ? renderPrivacyPage() : null
       }
 
       {showLogoutModal && (

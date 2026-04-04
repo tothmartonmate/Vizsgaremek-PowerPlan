@@ -102,25 +102,49 @@ body.dark-mode .copyright {
   position: relative;
 }
 
-.input-with-icon i {
+.input-with-icon > i {
   position: absolute;
   left: 15px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--gray);
+  pointer-events: none;
 }
 
-body.dark-mode .input-with-icon i {
+body.dark-mode .input-with-icon > i {
   color: #98a1bb;
 }
 
 .form-group input, .form-group select {
   width: 100%;
-  padding: 0.8rem 1rem 0.8rem 2.5rem;
+  padding: 0.8rem 3rem 0.8rem 2.5rem;
   border: 1px solid #ddd;
   border-radius: 5px;
   font-size: 1rem;
   transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: var(--gray);
+  cursor: pointer;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+body.dark-mode .password-toggle-btn {
+  color: #98a1bb;
+}
+
+.password-toggle-btn:hover {
+  color: var(--primary);
 }
 
 body.dark-mode .form-group input,

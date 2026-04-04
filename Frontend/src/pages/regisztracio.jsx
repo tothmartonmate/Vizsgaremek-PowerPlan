@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import './regisztracio.css';
 
 // JAVÍTÁS 1: Behozzuk a navigateTo függvényt a props-ból
 function Registration({ navigateTo }) {
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -100,18 +102,18 @@ function Registration({ navigateTo }) {
           <form id="registerForm" onSubmit={handleSubmit}>
             <div className="form-row">
               <div className="form-group">
-                <label htmlFor="firstName">Keresztnév</label>
-                <div className="input-with-icon">
-                  <i className="fas fa-user"></i>
-                  <input type="text" id="firstName" placeholder="Keresztnév" required />
-                </div>
-              </div>
-              
-              <div className="form-group">
                 <label htmlFor="lastName">Vezetéknév</label>
                 <div className="input-with-icon">
                   <i className="fas fa-user"></i>
                   <input type="text" id="lastName" placeholder="Vezetéknév" required />
+                </div>
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="firstName">Keresztnév</label>
+                <div className="input-with-icon">
+                  <i className="fas fa-user"></i>
+                  <input type="text" id="firstName" placeholder="Keresztnév" required />
                 </div>
               </div>
             </div>
@@ -128,7 +130,15 @@ function Registration({ navigateTo }) {
               <label htmlFor="password">Jelszó</label>
               <div className="input-with-icon">
                 <i className="fas fa-lock"></i>
-                <input type="password" id="password" placeholder="Válassz erős jelszót" required />
+                <input type={showPassword ? 'text' : 'password'} id="password" placeholder="Válassz erős jelszót" required />
+                <button
+                  type="button"
+                  className="password-toggle-btn"
+                  onClick={() => setShowPassword((currentValue) => !currentValue)}
+                  aria-label={showPassword ? 'Jelszó elrejtése' : 'Jelszó megjelenítése'}
+                >
+                  <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                </button>
               </div>
             </div>
             
@@ -136,7 +146,15 @@ function Registration({ navigateTo }) {
               <label htmlFor="confirmPassword">Jelszó megerősítése</label>
               <div className="input-with-icon">
                 <i className="fas fa-lock"></i>
-                <input type="password" id="confirmPassword" placeholder="Ismételd meg a jelszót" required />
+                <input type={showConfirmPassword ? 'text' : 'password'} id="confirmPassword" placeholder="Ismételd meg a jelszót" required />
+                <button
+                  type="button"
+                  className="password-toggle-btn"
+                  onClick={() => setShowConfirmPassword((currentValue) => !currentValue)}
+                  aria-label={showConfirmPassword ? 'Jelszó elrejtése' : 'Jelszó megjelenítése'}
+                >
+                  <i className={`fas ${showConfirmPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                </button>
               </div>
             </div>
             
@@ -154,27 +172,11 @@ function Registration({ navigateTo }) {
             
             <div className="terms">
               <input type="checkbox" id="terms" required />
-              <label htmlFor="terms">Elfogadom a <a href="#">Felhasználási feltételeket</a> és az <a href="#">Adatvédelmi szabályzatot</a></label>
+              <label htmlFor="terms">Elfogadom a <a href="#" onClick={(e) => handleNavClick(e, 'terms')}>Felhasználási feltételeket</a> és az <a href="#" onClick={(e) => handleNavClick(e, 'privacy')}>Adatvédelmi szabályzatot</a></label>
             </div>
             
             <button type="submit" className="submit-button">REGISZTRÁCIÓ</button>
           </form>
-          
-          <div className="divider">
-            <span>VAGY</span>
-          </div>
-          
-          <div className="social-login">
-            <button type="button" className="social-button facebook">
-              <i className="fab fa-facebook-f"></i>
-            </button>
-            <button type="button" className="social-button google">
-              <i className="fab fa-google"></i>
-            </button>
-            <button type="button" className="social-button apple">
-              <i className="fab fa-apple"></i>
-            </button>
-          </div>
           
           <div className="form-footer">
             Már van fiókod? <a href="#" onClick={(e) => handleNavClick(e, 'bejelentkezes')}>Jelentkezz be!</a>
@@ -182,37 +184,6 @@ function Registration({ navigateTo }) {
         </div>
       </div>
 
-      {/* Lábléc */}
-      <footer>
-        <div className="footer-content">
-          <div className="footer-column">
-            <h3>Power Plan</h3>
-            <p>Edzőtermi alkalmazás, amely segít elérni fitness céljaidat. Éld át a változást velünk!</p>
-          </div>
-          <div className="footer-column">
-            <h3>Gyors linkek</h3>
-            <ul className="footer-links">
-              <li><a href="#" onClick={(e) => handleNavClick(e, 'home')}>Kezdőlap</a></li>
-              <li><a href="#" onClick={(e) => handleNavClick(e, 'home', 'services')}>Szolgáltatások</a></li>
-              <li><a href="#" onClick={(e) => handleNavClick(e, 'home', 'about')}>Rólunk</a></li>
-              <li><a href="#" onClick={(e) => handleNavClick(e, 'home', 'pricing')}>Árak</a></li>
-              <li><a href="#" onClick={(e) => handleNavClick(e, 'home', 'contact')}>Kapcsolat</a></li>
-            </ul>
-          </div>
-          <div className="footer-column">
-            <h3>Kövess minket</h3>
-            <div className="social-icons">
-              <a href="#"><i className="fab fa-facebook-f"></i></a>
-              <a href="#"><i className="fab fa-instagram"></i></a>
-              <a href="#"><i className="fab fa-youtube"></i></a>
-              <a href="#"><i className="fab fa-tiktok"></i></a>
-            </div>
-          </div>
-        </div>
-        <div className="copyright">
-          <p>&copy; 2026 Power Plan Edzőtermi Alkalmazás. Minden jog fenntartva.</p>
-        </div>
-      </footer>
     </div>
   );
 }

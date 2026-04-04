@@ -1244,54 +1244,178 @@ body.dark-mode .theme-toggle-btn:hover {
   margin: 0 0 5px;
 }
 
-.gyms-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 20px;
-}
-
-.gym-card {
-  background: var(--card-bg);
-  border-radius: 12px;
-  padding: 18px;
-  cursor: pointer;
-  transition: all 0.3s;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-}
-
-.gym-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
-}
-
-.gym-header {
+.gym-map-mode-switch {
   display: flex;
-  justify-content: space-between;
-  margin-bottom: 10px;
-  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
 }
 
-.gym-header h3 {
-  margin: 0;
-  font-size: 1rem;
+.gym-map-meta-row {
+  display: flex;
+  margin-bottom: 16px;
 }
 
-.gym-rating {
-  background: var(--warning);
-  padding: 3px 10px;
-  border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 600;
+.gym-map-count-card {
+  background: linear-gradient(135deg, rgba(15, 76, 92, 0.14), rgba(42, 157, 143, 0.14));
+  border: 1px solid rgba(42, 157, 143, 0.2);
+  border-radius: 16px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 220px;
 }
 
-.gym-address,
-.gym-phone {
+.gym-map-count-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   color: var(--gray);
-  font-size: 0.85rem;
-  margin: 8px 0;
-  display: flex;
+}
+
+.gym-mode-btn {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--card-bg);
+  color: var(--gray);
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
+  transition: all 0.25s ease;
+}
+
+.gym-mode-btn:hover {
+  transform: translateY(-1px);
+  color: var(--dark);
+}
+
+.gym-mode-btn.active {
+  background: var(--primary);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(230, 57, 70, 0.22);
+}
+
+.gym-map-frame-wrap {
+  background: var(--card-bg);
+  border-radius: 18px;
+  overflow: hidden;
+  min-height: 560px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.gym-map-frame {
+  width: 100%;
+  height: 560px;
+  display: block;
+}
+
+.gym-map-frame .leaflet-control-zoom a {
+  color: var(--dark);
+}
+
+.gym-leaflet-marker {
+  background: transparent;
+  border: none;
+}
+
+.gym-leaflet-marker span {
+  width: 18px;
+  height: 18px;
+  display: block;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #ffb703, #e63946 68%);
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+}
+
+.gym-map-frame .leaflet-tooltip.gym-marker-label {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(15, 76, 92, 0.12);
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+  color: #111111 !important;
+  font-size: 0.74rem;
+  font-weight: 700;
+  opacity: 1;
+  padding: 5px 9px;
+  text-shadow: none;
+  white-space: nowrap;
+}
+
+.gym-map-frame .leaflet-tooltip.gym-marker-label::before {
+  display: none;
+}
+
+.gym-map-frame .leaflet-tooltip.current-location-label {
+  background: rgba(42, 157, 143, 0.96);
+  color: #ffffff !important;
+}
+
+.gym-popup {
+  min-width: 180px;
+  color: #111111;
+}
+
+.gym-map-frame .leaflet-popup-content-wrapper,
+.gym-map-frame .leaflet-popup-tip {
+  background: #ffffff;
+}
+
+.gym-map-frame .leaflet-popup-content,
+.gym-map-frame .leaflet-popup-content * {
+  color: #111111 !important;
+}
+
+.gym-popup h4 {
+  margin: 0 0 8px;
+  color: #111111 !important;
+  display: block;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.gym-popup p {
+  margin: 0 0 6px;
+  color: #4a4a4a !important;
+  font-size: 0.92rem;
+}
+
+.gym-popup strong {
+  color: #111111 !important;
+}
+
+.gym-popup a {
+  color: var(--primary) !important;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.gym-map-frame .leaflet-popup-content h4,
+.gym-map-frame .leaflet-popup-content h3,
+.gym-map-frame .leaflet-popup-content span,
+.gym-map-frame .leaflet-popup-content div {
+  color: #111111 !important;
+}
+
+.gym-popup a:hover {
+  text-decoration: underline;
+}
+
+.gym-map-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.gym-expand-btn {
+  min-width: 180px;
 }
 
 .btn-gym-direction {
@@ -1313,6 +1437,18 @@ body.dark-mode .theme-toggle-btn:hover {
 .btn-gym-direction:hover {
   background: #d32f3d;
   transform: translateY(-2px);
+}
+
+@media (max-width: 768px) {
+  .gym-map-count-card {
+    width: 100%;
+  }
+
+  .gym-map-frame-wrap,
+  .gym-map-frame {
+    min-height: 420px;
+    height: 420px;
+  }
 }
 
 /* Badges & Achievements */
@@ -1491,6 +1627,91 @@ body.dark-mode .theme-toggle-btn:hover {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 15px;
+}
+
+.food-search-wrap {
+  position: relative;
+}
+
+.food-search-wrap i {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--gray);
+}
+
+.food-search-input {
+  padding-left: 40px;
+}
+
+.food-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.food-search-result-item {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: var(--light);
+  color: var(--text);
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease;
+}
+
+.food-search-result-item:hover {
+  border-color: rgba(230, 57, 70, 0.45);
+  transform: translateY(-1px);
+}
+
+.food-search-result-item.active {
+  border-color: var(--primary);
+  background: rgba(230, 57, 70, 0.12);
+}
+
+.food-search-result-name {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.food-search-result-meta {
+  display: block;
+  color: var(--gray);
+  font-size: 0.84rem;
+}
+
+.food-search-empty {
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--light);
+  color: var(--gray);
+}
+
+.food-picker-help {
+  display: block;
+  margin-top: 8px;
+  color: var(--gray);
+  font-size: 0.82rem;
+}
+
+.food-calorie-preview {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--light);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-weight: 700;
 }
 
 /* Modal */
