@@ -23,6 +23,7 @@ pool.getConnection()
     .catch((err) => console.error('❌ Hiba az adatbázis csatlakozáskor:', err.message));
 
 let progressImageColumnPromise;
+let workoutSchemaPromise;
 const parseJsonArray = (value) => {
     if (!value) return [];
     if (Array.isArray(value)) return value;
@@ -42,6 +43,53 @@ const getProgressImageColumn = async () => {
         })();
     }
     return progressImageColumnPromise;
+};
+
+const WORKOUT_TYPE_STORAGE_MAP = {
+    push: 'push',
+    pull: 'pull',
+    leg: 'legs',
+    legs: 'legs',
+    upper: 'upper',
+    lower: 'lower',
+    'full body': 'full_body',
+    full_body: 'full_body',
+    arms: 'arms',
+    cardio: 'cardio',
+    hiit: 'hiit'
+};
+
+const normalizeWorkoutType = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    return WORKOUT_TYPE_STORAGE_MAP[normalized] || normalized;
+};
+
+const ensureWorkoutSchema = async () => {
+    if (!workoutSchemaPromise) {
+        workoutSchemaPromise = (async () => {
+            try {
+                const [workoutTypeColumn] = await pool.query("SHOW COLUMNS FROM workouts LIKE 'workout_type'");
+                if (workoutTypeColumn.length === 0) {
+                    return;
+                }
+
+                const expectedDefinition = "enum('push','pull','legs','upper','lower','full_body','arms','cardio','hiit')";
+                const currentDefinition = String(workoutTypeColumn[0].Type || '').toLowerCase();
+
+                if (currentDefinition !== expectedDefinition) {
+                    await pool.query(`
+                        ALTER TABLE workouts
+                        MODIFY COLUMN workout_type ENUM('push','pull','legs','upper','lower','full_body','arms','cardio','hiit') NOT NULL
+                    `);
+                    console.log('✅ Frissítve a workout_type enum a workouts táblában');
+                }
+            } catch (error) {
+                console.error('❌ Hiba az edzés séma előkészítésekor:', error.message);
+            }
+        })();
+    }
+
+    return workoutSchemaPromise;
 };
 
 const ensureAdminSchema = async () => {
@@ -90,6 +138,7 @@ const requireAdmin = async (userId, res) => {
 };
 
 ensureAdminSchema();
+ensureWorkoutSchema();
 
 // -------------------- REGISZTRÁCIÓ --------------------
 app.get('/api/register/check-email', async (req, res) => {
@@ -546,12 +595,19 @@ app.post('/api/workouts', async (req, res) => {
     if (!userId || !name || !workoutType || !scheduledDay || !exercises || exercises.length === 0) {
         return res.status(400).json({ error: 'Minden adat és legalább egy gyakorlat megadása kötelező!' });
     }
+
+    const normalizedWorkoutType = normalizeWorkoutType(workoutType);
+    if (!normalizedWorkoutType) {
+        return res.status(400).json({ error: 'Érvénytelen edzés típus!' });
+    }
+
     const connection = await pool.getConnection();
     try {
+        await ensureWorkoutSchema();
         await connection.beginTransaction();
         const [wResult] = await connection.query(
             'INSERT INTO workouts (user_id, name, workout_type, scheduled_day) VALUES (?, ?, ?, ?)',
-            [userId, name, workoutType, scheduledDay]
+            [userId, name, normalizedWorkoutType, scheduledDay]
         );
         const workoutId = wResult.insertId;
         for (let ex of exercises) {
@@ -626,10 +682,17 @@ app.put('/api/workouts/:workoutId', async (req, res) => {
     if (!name || !workoutType || !scheduledDay || !exercises || exercises.length === 0) {
         return res.status(400).json({ error: 'Minden mező kitöltése kötelező!' });
     }
+
+    const normalizedWorkoutType = normalizeWorkoutType(workoutType);
+    if (!normalizedWorkoutType) {
+        return res.status(400).json({ error: 'Érvénytelen edzés típus!' });
+    }
+
     const connection = await pool.getConnection();
     try {
+        await ensureWorkoutSchema();
         await connection.beginTransaction();
-        await connection.query(`UPDATE workouts SET name = ?, workout_type = ?, scheduled_day = ? WHERE id = ?`, [name, workoutType, scheduledDay, workoutId]);
+        await connection.query(`UPDATE workouts SET name = ?, workout_type = ?, scheduled_day = ? WHERE id = ?`, [name, normalizedWorkoutType, scheduledDay, workoutId]);
         await connection.query(`DELETE FROM workout_exercises WHERE workout_id = ?`, [workoutId]);
         for (let ex of exercises) {
             await connection.query(`INSERT INTO workout_exercises (workout_id, muscle_group, exercise_name, sets_data, sort_order) VALUES (?, ?, ?, ?, ?)`, [workoutId, ex.muscleGroup, ex.name, JSON.stringify(ex.sets), ex.sortOrder || 0]);

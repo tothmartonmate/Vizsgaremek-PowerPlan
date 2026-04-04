@@ -251,6 +251,13 @@ const WORKOUT_TYPE_LABELS = {
 
 const normalizeWorkoutTypeValue = (type) => WORKOUT_TYPE_LABELS[type] || type || '';
 
+const serializeWorkoutTypeValue = (type) => {
+  const normalized = String(type || '').trim().toLowerCase();
+  if (normalized === 'full body') return 'full_body';
+  if (normalized === 'leg') return 'legs';
+  return normalized;
+};
+
 const formatWorkoutTypeLabel = (type) => WORKOUT_TYPE_LABELS[type] || type || '-';
 
 // NAPTÁR KOMPONENS
@@ -1664,7 +1671,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     const payload = {
       userId: currentUser.id,
       name: workoutFormDetails.name,
-      workoutType: workoutFormDetails.type,
+      workoutType: serializeWorkoutTypeValue(workoutFormDetails.type),
       scheduledDay: workoutFormDetails.day,
       exercises: exercisesList
     };
