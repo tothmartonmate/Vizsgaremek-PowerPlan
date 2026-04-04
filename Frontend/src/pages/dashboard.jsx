@@ -127,12 +127,25 @@ const hasRenderableMapSize = (map) => {
   return Boolean(container && container.clientWidth > 0 && container.clientHeight > 0);
 };
 
+const isLeafletMapReady = (map) => {
+  if (!map || typeof map.getContainer !== 'function') return false;
+
+  const container = map.getContainer();
+  return Boolean(container && container.isConnected && map._loaded && map._mapPane);
+};
+
 const safeSetHungaryView = (map) => {
-  map.setView(HUNGARY_CENTER, 7, { animate: false });
+  if (!isLeafletMapReady(map)) return;
+
+  try {
+    map.setView(HUNGARY_CENTER, 7, { animate: false });
+  } catch (error) {
+    console.warn('Térkép nézet visszaállítási hiba:', error);
+  }
 };
 
 const safeFitBounds = (map, bounds, fallbackToHungary = true) => {
-  if (!map) return;
+  if (!isLeafletMapReady(map)) return;
 
   const normalizedBounds = Array.isArray(bounds)
     ? bounds.filter((entry) => Array.isArray(entry) && isValidLatLng(entry[0], entry[1]))
@@ -215,9 +228,30 @@ const EXERCISE_DB_WITH_VIDEOS = {
 const MUSCLE_FILTER = {
   'push': ['Mell', 'Váll', 'Tricepsz'],
   'pull': ['Hát', 'Bicepsz'],
+  'leg': ['Láb', 'Has'],
+  'upper': ['Mell', 'Hát', 'Váll', 'Bicepsz', 'Tricepsz'],
+  'lower': ['Láb', 'Has'],
+  'full body': Object.keys(EXERCISE_DB_WITH_VIDEOS),
+  'arms': ['Bicepsz', 'Tricepsz'],
   'legs': ['Láb', 'Has'],
   'full_body': Object.keys(EXERCISE_DB_WITH_VIDEOS)
 };
+
+const WORKOUT_TYPE_LABELS = {
+  'push': 'push',
+  'pull': 'pull',
+  'leg': 'leg',
+  'upper': 'upper',
+  'lower': 'lower',
+  'full body': 'full body',
+  'arms': 'arms',
+  'legs': 'leg',
+  'full_body': 'full body'
+};
+
+const normalizeWorkoutTypeValue = (type) => WORKOUT_TYPE_LABELS[type] || type || '';
+
+const formatWorkoutTypeLabel = (type) => WORKOUT_TYPE_LABELS[type] || type || '-';
 
 // NAPTÁR KOMPONENS
 const WeekCalendar = ({ selectedDate, onDateChange, onWeekChange }) => {
@@ -376,8 +410,13 @@ const GymMap = ({ isActive }) => {
 
     const map = leafletMapRef.current;
     const refreshMapSize = () => {
+      if (!isLeafletMapReady(map)) return;
       map.invalidateSize();
-      map.panInsideBounds(HUNGARY_BOUNDS, { animate: false });
+      try {
+        map.panInsideBounds(HUNGARY_BOUNDS, { animate: false });
+      } catch (error) {
+        console.warn('Térkép pozicionálási hiba:', error);
+      }
     };
 
     const timeoutId = window.setTimeout(refreshMapSize, 120);
@@ -391,6 +430,7 @@ const GymMap = ({ isActive }) => {
 
     const map = leafletMapRef.current;
     const markerLayer = markerLayerRef.current;
+    if (!isLeafletMapReady(map)) return;
     markerLayer.clearLayers();
 
     const gymsWithDistance = ALL_GYMS.map((gym) => {
@@ -495,7 +535,11 @@ const GymMap = ({ isActive }) => {
       safeSetHungaryView(map);
     }
 
-    map.panInsideBounds(HUNGARY_BOUNDS, { animate: false });
+    try {
+      map.panInsideBounds(HUNGARY_BOUNDS, { animate: false });
+    } catch (error) {
+      console.warn('Térkép bounds igazítási hiba:', error);
+    }
   }, [mapMode, nearbyCenter]);
 
   const showCountrywideGyms = () => {
@@ -630,6 +674,8 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const [selectedFoodCategory, setSelectedFoodCategory] = useState('');
   const [mealToDelete, setMealToDelete] = useState(null);
   const [showDeleteMealModal, setShowDeleteMealModal] = useState(false);
+  const [workoutToDelete, setWorkoutToDelete] = useState(null);
+  const [showDeleteWorkoutModal, setShowDeleteWorkoutModal] = useState(false);
   
   // Edzés részletek modalhoz
   const [selectedWorkout, setSelectedWorkout] = useState(null);
@@ -1482,6 +1528,16 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     setShowDeleteMealModal(false);
   };
 
+  const openDeleteWorkoutModal = (workout) => {
+    setWorkoutToDelete(workout);
+    setShowDeleteWorkoutModal(true);
+  };
+
+  const closeDeleteWorkoutModal = () => {
+    setWorkoutToDelete(null);
+    setShowDeleteWorkoutModal(false);
+  };
+
   const deleteMeal = async (mealId) => {
     const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
     const token = localStorage.getItem('powerplan_token');
@@ -1501,6 +1557,36 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         loadNutritionWeek(nutritionSelectedDate);
       } else {
         showToast('Hiba a törléskor!', 'error');
+      }
+    } catch (error) {
+      showToast('Hálózati hiba!', 'error');
+    }
+  };
+
+  const deleteWorkout = async (workoutId) => {
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+
+    if (!currentUser.id || currentUser.id === 'demo-999') {
+      showToast('Demó módban nem törölhetsz!', 'error');
+      return;
+    }
+
+    try {
+      const response = await fetch(`http://localhost:5001/api/workouts/${workoutId}?userId=${currentUser.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        showToast('Edzés törölve!', 'success');
+        closeDeleteWorkoutModal();
+        closeModal();
+        closeWorkoutDetailsModal();
+        loadDashboardData(currentUser.id, token);
+        loadWeekWorkouts(selectedDate);
+      } else {
+        showToast('Hiba a törlés során.', 'error');
       }
     } catch (error) {
       showToast('Hálózati hiba!', 'error');
@@ -1631,12 +1717,12 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     if (!selectedWorkout) return;
     setWorkoutFormDetails({
       name: selectedWorkout.name,
-      type: selectedWorkout.workout_type,
+      type: normalizeWorkoutTypeValue(selectedWorkout.workout_type),
       day: selectedWorkout.scheduled_day
     });
     const exercises = selectedWorkout.exercises.map((ex, idx) => ({
       id: idx + 1,
-      muscleGroup: ex.muscle,
+      muscleGroup: ex.muscleGroup || ex.muscle || '',
       name: ex.name,
       sets: ex.sets.map(s => ({ weight: s.weight, reps: s.reps, rpe: s.rpe || '' }))
     }));
@@ -2057,7 +2143,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                           onClick={() => handleWorkoutClick(workout)}
                         >
                           <div className="workout-name">{workout.name}</div>
-                          <div className="workout-type">{workout.workout_type}</div>
+                          <div className="workout-type">{formatWorkoutTypeLabel(workout.workout_type)}</div>
                           <div className="workout-preview">
                             {workout.exercises?.slice(0, 2).map((ex, i) => (
                               <span key={i} className="exercise-preview-tag">{ex.name}</span>
@@ -2671,6 +2757,23 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         </div>
       </div>
 
+      <div className={`modal modal-front ${showDeleteWorkoutModal ? 'active' : ''}`} onClick={(e) => {
+        if (e.target === e.currentTarget) closeDeleteWorkoutModal();
+      }}>
+        <div className="modal-content">
+          <div className="modal-header">
+            <h2><i className="fas fa-trash-alt"></i> Edzés törlése</h2>
+            <button className="modal-close" onClick={closeDeleteWorkoutModal}><i className="fas fa-times"></i></button>
+          </div>
+          <p>Biztosan törölni szeretnéd ezt az edzést?</p>
+          <p><strong>{workoutToDelete?.name || 'Ismeretlen edzés'}</strong> - {formatWorkoutTypeLabel(workoutToDelete?.workout_type || '')}</p>
+          <div className="modal-buttons">
+            <button type="button" className="btn btn-secondary" onClick={closeDeleteWorkoutModal}>Mégse</button>
+            <button type="button" className="btn btn-primary" onClick={() => deleteWorkout(workoutToDelete?.id)}>Törlés</button>
+          </div>
+        </div>
+      </div>
+
       {/* MODAL: Edzés részletek */}
       {showWorkoutDetailsModal && selectedWorkout && (
         <div className="modal active" onClick={(e) => {
@@ -2683,7 +2786,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
             </div>
             <div className="workout-details">
               <div className="workout-meta">
-                <span className="badge">{selectedWorkout.workout_type}</span>
+                <span className="badge">{formatWorkoutTypeLabel(selectedWorkout.workout_type)}</span>
                 <span className="date">{new Date(selectedWorkout.created_at).toLocaleDateString('hu-HU')}</span>
               </div>
               <div className="exercises-list">
@@ -2726,6 +2829,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
             </div>
             <div className="modal-buttons">
               <button className="btn btn-secondary" onClick={closeWorkoutDetailsModal}>Bezárás</button>
+              <button className="btn btn-secondary" onClick={() => openDeleteWorkoutModal(selectedWorkout)}>Törlés</button>
               <button className="btn btn-primary" onClick={startEditWorkout}>Szerkesztés</button>
             </div>
           </div>
@@ -2771,10 +2875,13 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                     setExercisesList([{ id: Date.now(), muscleGroup: '', name: '', sets: [{ weight: '', reps: '', rpe: '' }] }]);
                   }} required>
                   <option value="">Válasszon...</option>
-                  <option value="push">Push (Mell, Váll, Tricepsz)</option>
-                  <option value="pull">Pull (Hát, Bicepsz)</option>
-                  <option value="legs">Legs (Láb, Has)</option>
-                  <option value="full_body">Teljes Test</option>
+                  <option value="push">push</option>
+                  <option value="pull">pull</option>
+                  <option value="leg">leg</option>
+                  <option value="upper">upper</option>
+                  <option value="lower">lower</option>
+                  <option value="full body">full body</option>
+                  <option value="arms">arms</option>
                 </select>
               </div>
             </div>
@@ -2782,7 +2889,9 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
             <hr />
             
             {exercisesList.map((exercise, exIndex) => {
-              const allowedMuscles = workoutFormDetails.type ? MUSCLE_FILTER[workoutFormDetails.type] : Object.keys(EXERCISE_DB_WITH_VIDEOS);
+              const allowedMuscles = workoutFormDetails.type
+                ? (MUSCLE_FILTER[workoutFormDetails.type] || Object.keys(EXERCISE_DB_WITH_VIDEOS))
+                : Object.keys(EXERCISE_DB_WITH_VIDEOS);
               return (
                 <div key={exercise.id} className="exercise-block">
                   <div className="exercise-block-header">
@@ -2847,6 +2956,19 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
             
             <div className="modal-buttons">
               <button type="button" className="btn btn-secondary" onClick={closeModal}>Mégse</button>
+              {editingWorkoutId && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => openDeleteWorkoutModal(selectedWorkout || {
+                    id: editingWorkoutId,
+                    name: workoutFormDetails.name,
+                    workout_type: workoutFormDetails.type
+                  })}
+                >
+                  Törlés
+                </button>
+              )}
               <button type="submit" className="btn btn-primary">{editingWorkoutId ? 'Mentés' : 'Edzés mentése'}</button>
             </div>
           </form>

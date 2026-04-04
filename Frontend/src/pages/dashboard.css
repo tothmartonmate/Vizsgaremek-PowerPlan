@@ -1859,6 +1859,10 @@ body.dark-mode .admin-panel-header span {
   display: flex;
 }
 
+.modal-front {
+  z-index: 2300;
+}
+
 .modal-content {
   background: var(--card-bg);
   border-radius: 20px;

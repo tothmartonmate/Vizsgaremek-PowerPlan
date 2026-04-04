@@ -645,6 +645,42 @@ app.put('/api/workouts/:workoutId', async (req, res) => {
     }
 });
 
+app.delete('/api/workouts/:workoutId', async (req, res) => {
+    const { workoutId } = req.params;
+    const { userId } = req.query;
+
+    if (!workoutId || !userId) {
+        return res.status(400).json({ error: 'Hiányzó edzés vagy felhasználó azonosító!' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        const [workouts] = await connection.query(
+            'SELECT id FROM workouts WHERE id = ? AND user_id = ? LIMIT 1',
+            [workoutId, userId]
+        );
+
+        if (!workouts.length) {
+            await connection.rollback();
+            return res.status(404).json({ error: 'Az edzés nem található!' });
+        }
+
+        await connection.query('DELETE FROM workout_exercises WHERE workout_id = ?', [workoutId]);
+        await connection.query('DELETE FROM workouts WHERE id = ? AND user_id = ?', [workoutId, userId]);
+
+        await connection.commit();
+        res.json({ success: true, message: 'Edzés törölve!' });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Hiba az edzés törlésekor:', error);
+        res.status(500).json({ error: 'Szerverhiba törlés közben!' });
+    } finally {
+        connection.release();
+    }
+});
+
 // -------------------- PROFILKÉP FELTÖLTÉSE --------------------
 app.post('/api/upload-profile-image', async (req, res) => {
     const { userId, imageBase64 } = req.body;
