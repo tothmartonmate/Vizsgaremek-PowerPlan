@@ -203,6 +203,7 @@ CREATE TABLE `user_questionnaires` (
   `goal_timeframe` varchar(50) NOT NULL,
   `specific_goal` text,
   `motivations` json DEFAULT NULL,
+  `wants_workout_plan_recommendations` enum('yes','no') NOT NULL DEFAULT 'no',
   `sleep_hours` decimal(4,1) DEFAULT '7.0',
   `stress_level` int DEFAULT '5',
   `sitting_time` enum('low','medium','high') NOT NULL,
@@ -224,11 +225,11 @@ CREATE TABLE `user_questionnaires` (
 -- A tábla adatainak kiíratása `user_questionnaires`
 --
 
-INSERT INTO `user_questionnaires` (`id`, `user_id`, `gender`, `height_cm`, `weight_kg`, `birth_date`, `activity_level`, `experience_level`, `weekly_training_days`, `training_types`, `current_injury`, `chronic_conditions`, `medications`, `main_goal`, `goal_timeframe`, `specific_goal`, `motivations`, `sleep_hours`, `stress_level`, `sitting_time`, `diet_types`, `allergies`, `diet_control_level`, `wants_diet_recommendations`, `training_location`, `preferred_workout_duration_mins`, `preferred_weekly_frequency`, `physique_satisfaction`, `energy_level`, `obstacles`, `additional_comments`, `completed_at`) VALUES
-(1, 1, 'male', 180.00, 159.90, '2008-03-06', 'sedentary', 'beginner', '0', '[\"cardio\"]', 'no', '[]', '', 'weightLoss', '1month', '', '[\"health\"]', 8.0, 4, 'medium', '[\"none\"]', 'igen,minden\n', 10, 'maybe', 'outdoor', 30, '2', 10, 1, '[\"money\"]', 'rossz az oldal,gagyi', '2026-03-20 12:11:11'),
-(2, 2, 'male', 160.00, 160.00, '2008-02-26', 'sedentary', 'beginner', '3-4', '[\"cardio\", \"weight\"]', 'no', '[]', '', 'strength', '6months', '', '[\"appearance\"]', 8.5, 7, 'medium', '[\"none\"]', '', 4, 'no', 'gym', 45, '3', 5, 5, '[\"time\"]', '', '2026-03-20 12:52:08'),
-(3, 3, 'other', 169.00, 79.90, '2008-03-14', 'sedentary', 'beginner', '1-2', '[\"cardio\"]', 'knee', '[\"bloodPressure\"]', '', 'muscleGain', '1month', '', '[\"health\"]', 7.0, 10, 'medium', '[\"keto\"]', '', 7, 'no', 'home', 45, '5+', 5, 5, '[\"time\", \"motivation\", \"money\", \"knowledge\"]', '', '2026-03-29 09:27:26'),
-(4, 4, 'male', 169.00, 167.00, '2011-06-23', 'light', 'beginner', '0', '[\"weight\"]', 'no', '[\"bloodPressure\"]', '', 'fitness', '3months', '', '[\"health\"]', 10.0, 10, 'low', '[\"none\"]', '', 1, 'maybe', 'outdoor', 30, '2', 6, 7, '[\"time\"]', '', '2026-03-29 11:41:18');
+INSERT INTO `user_questionnaires` (`id`, `user_id`, `gender`, `height_cm`, `weight_kg`, `birth_date`, `activity_level`, `experience_level`, `weekly_training_days`, `training_types`, `current_injury`, `chronic_conditions`, `medications`, `main_goal`, `goal_timeframe`, `specific_goal`, `motivations`, `wants_workout_plan_recommendations`, `sleep_hours`, `stress_level`, `sitting_time`, `diet_types`, `allergies`, `diet_control_level`, `wants_diet_recommendations`, `training_location`, `preferred_workout_duration_mins`, `preferred_weekly_frequency`, `physique_satisfaction`, `energy_level`, `obstacles`, `additional_comments`, `completed_at`) VALUES
+(1, 1, 'male', 180.00, 159.90, '2008-03-06', 'sedentary', 'beginner', '0', '[\"cardio\"]', 'no', '[]', '', 'weightLoss', '1month', '', '[\"health\"]', 'no', 8.0, 4, 'medium', '[\"none\"]', 'igen,minden\n', 10, 'maybe', 'outdoor', 30, '2', 10, 1, '[\"money\"]', 'rossz az oldal,gagyi', '2026-03-20 12:11:11'),
+(2, 2, 'male', 160.00, 160.00, '2008-02-26', 'sedentary', 'beginner', '3-4', '[\"cardio\", \"weight\"]', 'no', '[]', '', 'strength', '6months', '', '[\"appearance\"]', 'yes', 8.5, 7, 'medium', '[\"none\"]', '', 4, 'no', 'gym', 45, '3', 5, 5, '[\"time\"]', '', '2026-03-20 12:52:08'),
+(3, 3, 'other', 169.00, 79.90, '2008-03-14', 'sedentary', 'beginner', '1-2', '[\"cardio\"]', 'knee', '[\"bloodPressure\"]', '', 'muscleGain', '1month', '', '[\"health\"]', 'yes', 7.0, 10, 'medium', '[\"keto\"]', '', 7, 'no', 'home', 45, '5+', 5, 5, '[\"time\", \"motivation\", \"money\", \"knowledge\"]', '', '2026-03-29 09:27:26'),
+(4, 4, 'male', 169.00, 167.00, '2011-06-23', 'light', 'beginner', '0', '[\"weight\"]', 'no', '[\"bloodPressure\"]', '', 'fitness', '3months', '', '[\"health\"]', 'yes', 10.0, 10, 'low', '[\"none\"]', '', 1, 'maybe', 'outdoor', 30, '2', 6, 7, '[\"time\"]', '', '2026-03-29 11:41:18');
 
 -- --------------------------------------------------------
 

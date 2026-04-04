@@ -727,8 +727,8 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const [adminLoading, setAdminLoading] = useState(false);
   
   const [userData, setUserData] = useState({});
-  const [workoutData, setWorkoutData] = useState({ weeklyPlan: [], stats: {}, aiRecommendation: '' });
-  const [nutritionData, setNutritionData] = useState({ todayMeals: [], dailyCalories: 0 });
+  const [workoutData, setWorkoutData] = useState({ weeklyPlan: [], stats: {}, aiRecommendation: '', recommendedPlan: [], recommendationNote: '' });
+  const [nutritionData, setNutritionData] = useState({ todayMeals: [], dailyCalories: 0, recommendations: [], calorieTarget: 2500, recommendationNote: '' });
   const [nutritionWeekData, setNutritionWeekData] = useState({ dailyTotals: [], meals: [] });
   const [weightHistory, setWeightHistory] = useState([]);
   const [nutritionSelectedDate, setNutritionSelectedDate] = useState(new Date());
@@ -1921,7 +1921,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const totalCaloriesToday = localTodayMeals.length > 0
     ? localTodayMeals.reduce((sum, meal) => sum + (meal.calories || 0), 0)
     : (nutritionData.todayMeals?.reduce((sum, meal) => sum + (meal.calories || 0), 0) || 0);
-  const calorieGoal = 2500;
+  const calorieGoal = nutritionData.calorieTarget || 2500;
   const calorieProgress = (totalCaloriesToday / calorieGoal) * 100;
   const isViewingTodayNutrition = isSameDay(nutritionSelectedDate, new Date());
   const selectedNutritionDateKey = formatLocalDate(nutritionSelectedDate);
@@ -2130,6 +2130,41 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         {/* WORKOUT PLAN SECTION */}
         <div className={`content-section ${currentSection === 'workout-plan' ? 'active' : ''}`}>
           <div className="card">
+            <div className="workout-recommendations-panel">
+              <div className="nutrition-top-row workout-recommendation-row">
+                <h3>Ajánlott mintaedzésterv</h3>
+              </div>
+              {workoutData.recommendationNote && (
+                <p className="workout-recommendation-note">{workoutData.recommendationNote}</p>
+              )}
+              <div className="week-workouts workout-recommendation-grid">
+                {(workoutData.recommendedPlan || []).map((workout, index) => (
+                  <div key={`${workout.day}-${index}`} className="day-workout-card">
+                    <div className="day-workout-header">
+                      <h3>{workout.dayLabel}</h3>
+                      <span className="workout-count">Minta</span>
+                    </div>
+                    <div className="workout-item">
+                      <div className="workout-name">{workout.title}</div>
+                      <div className="workout-type">{formatWorkoutTypeLabel(workout.workoutType)}</div>
+                      <div className="workout-preview">
+                        {(workout.exercises || []).map((exercise, exerciseIndex) => (
+                          <span key={exerciseIndex} className="exercise-preview-tag">
+                            {typeof exercise === 'string' ? exercise : exercise.name}
+                            {typeof exercise !== 'string' && exercise.prescription && (
+                              <strong>{exercise.prescription}</strong>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {(workoutData.recommendedPlan || []).length === 0 && (
+                  <p className="no-data">Nincs elérhető edzésterv minta ehhez a profilhoz.</p>
+                )}
+              </div>
+            </div>
             <WeekCalendar selectedDate={selectedDate} onDateChange={setSelectedDate} onWeekChange={loadWeekWorkouts} />
             {loadingWorkouts ? (
               <div className="loading-spinner"><i className="fas fa-spinner fa-spin"></i> Betöltés...</div>
@@ -2267,6 +2302,47 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         {/* NUTRITION SECTION */}
         <div className={`content-section ${currentSection === 'nutrition' ? 'active' : ''}`}>
           <div className="card">
+            <div className="nutrition-recommendations-panel">
+              <div className="nutrition-top-row nutrition-recommendation-row">
+                <h3>Ajánlott napi étrend</h3>
+                <span className="nutrition-recommendation-date">{nutritionData.recommendationDateLabel || formatHungarianLongDate(new Date())}</span>
+              </div>
+              {nutritionData.recommendationNote && (
+                <p className="nutrition-recommendation-note">{nutritionData.recommendationNote}</p>
+              )}
+              <div className="nutrition-summary-grid nutrition-recommendation-summary">
+                <div className="nutrition-summary-card">
+                  <span className="nutrition-summary-label">Ajánlott napi keret</span>
+                  <strong>{nutritionData.calorieTarget || 0} kcal</strong>
+                </div>
+                <div className="nutrition-summary-card">
+                  <span className="nutrition-summary-label">Ajánlott étkezések</span>
+                  <strong>{nutritionData.recommendations?.length || 0} db</strong>
+                </div>
+              </div>
+              <div className="meal-plan nutrition-meal-plan nutrition-recommendation-plan">
+                {(nutritionData.recommendations || []).map((meal, i) => (
+                  <div key={`${meal.meal_type}-${i}`} className="meal-card">
+                    <div className="meal-card-header">
+                      <span className="meal-time">{meal.mealTypeLabel || meal.meal_type}</span>
+                    </div>
+                    <div className="meal-card-title">
+                      <h4>{meal.name}</h4>
+                    </div>
+                    <p className="meal-description">{meal.description}</p>
+                    <div className="macros">
+                      <div className="macro">
+                        <div className="macro-value">{meal.calories}</div>
+                        <div className="macro-label">Kcal</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {(nutritionData.recommendations || []).length === 0 && (
+                  <p className="no-data">Nincs elérhető étrendi ajánlás ehhez a profilhoz.</p>
+                )}
+              </div>
+            </div>
             <div className="nutrition-top-row">
               <h3>Napi étkezések</h3>
               <button className="btn btn-primary" onClick={showMealLogModal}><i className="fas fa-plus"></i> Étkezés</button>

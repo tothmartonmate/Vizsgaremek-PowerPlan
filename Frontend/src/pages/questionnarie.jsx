@@ -29,7 +29,8 @@ const Questionnaire = ({ navigateTo, setIsLoggedIn }) => {
       mainGoal: '',
       timeframe: '',
       specificGoal: '',
-      motivation: []
+      motivation: [],
+      workoutPlanRecommendation: ''
     },
     lifestyle: {
       sleepHours: '7',
@@ -925,6 +926,33 @@ const Questionnaire = ({ navigateTo, setIsLoggedIn }) => {
                 onChange={handleInputChange}
                 name="specificGoal"
               ></textarea>
+            </div>
+
+            <div className="form-group">
+              <label>Szeretnél edzésterv mintát?</label>
+              <div className="radio-group">
+                <label className="radio-label">
+                  <input
+                    type="radio"
+                    name="workoutPlanRecommendation"
+                    value="yes"
+                    checked={formData.goals.workoutPlanRecommendation === 'yes'}
+                    onChange={handleInputChange}
+                    required
+                  />
+                  Igen
+                </label>
+                <label className="radio-label">
+                  <input
+                    type="radio"
+                    name="workoutPlanRecommendation"
+                    value="no"
+                    checked={formData.goals.workoutPlanRecommendation === 'no'}
+                    onChange={handleInputChange}
+                  />
+                  Nem
+                </label>
+              </div>
             </div>
 
             <div className="form-group">

@@ -8,6 +8,9 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 
+const DB_RETRY_DELAY_MS = 5000;
+const DB_MAX_RETRIES = 30;
+
 const pool = mysql.createPool({
     host: process.env.DB_HOST || 'db',
     user: process.env.DB_USER || 'root',
@@ -18,9 +21,7 @@ const pool = mysql.createPool({
     queueLimit: 0
 });
 
-pool.getConnection()
-    .then((connection) => { console.log('✅ Sikeresen csatlakozva a MySQL adatbázishoz!'); connection.release(); })
-    .catch((err) => console.error('❌ Hiba az adatbázis csatlakozáskor:', err.message));
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let progressImageColumnPromise;
 let workoutSchemaPromise;
@@ -43,6 +44,308 @@ const getProgressImageColumn = async () => {
         })();
     }
     return progressImageColumnPromise;
+};
+
+const normalizeText = (value) => String(value || '').trim().toLowerCase();
+
+const DAILY_MEAL_LIBRARY = {
+    breakfast: [
+        { name: 'Fehérjedús zabkása bogyós gyümölcsökkel', desc: 'Lassú felszívódású szénhidrát, jó reggeli indulás.', diets: ['balanced', 'vegetarian'], allergens: ['lactose', 'gluten'], goals: ['weightLoss', 'muscleGain', 'fitness', 'strength'] },
+        { name: 'Tojásrántotta teljes kiőrlésű pirítóssal', desc: 'Magas fehérje, stabil energiaszint.', diets: ['balanced', 'vegetarian'], allergens: ['egg', 'gluten'], goals: ['muscleGain', 'fitness', 'strength'] },
+        { name: 'Avokádós pirítós paradicsommal', desc: 'Könnyebb, kiegyensúlyozott reggeli.', diets: ['balanced', 'vegetarian', 'vegan'], allergens: ['gluten'], goals: ['weightLoss', 'fitness'] },
+        { name: 'Görög joghurt magvakkal és almával', desc: 'Fehérjés és gyorsan fogyasztható opció.', diets: ['balanced', 'vegetarian'], allergens: ['lactose', 'nuts'], goals: ['weightLoss', 'fitness', 'muscleGain'] },
+        { name: 'Chia puding kókusztejjel', desc: 'Tejmentes, könnyen emészthető reggeli.', diets: ['balanced', 'vegetarian', 'vegan', 'keto'], allergens: [], goals: ['weightLoss', 'fitness', 'muscleGain'] },
+        { name: 'Tofu scramble zöldségekkel', desc: 'Növényi alapú, fehérjedús reggeli.', diets: ['vegan', 'vegetarian'], allergens: ['soy'], goals: ['fitness', 'muscleGain', 'weightLoss'] },
+        { name: 'Sajtos omlett spenóttal', desc: 'Alacsonyabb szénhidrát, laktató reggeli.', diets: ['balanced', 'vegetarian', 'keto'], allergens: ['egg', 'lactose'], goals: ['weightLoss', 'strength', 'fitness'] },
+        { name: 'Lazacos tojásos tál', desc: 'Keto-barát, fehérjében gazdag reggeli.', diets: ['balanced', 'keto'], allergens: ['egg', 'fish'], goals: ['weightLoss', 'strength', 'muscleGain'] }
+    ],
+    lunch: [
+        { name: 'Grillezett csirkemell barna rizzsel és salátával', desc: 'Klasszikus, jól tervezhető ebéd.', diets: ['balanced'], allergens: [], goals: ['weightLoss', 'fitness', 'muscleGain'] },
+        { name: 'Pulykamell édesburgonyával és brokkolival', desc: 'Izomépítéshez erős ebéd opció.', diets: ['balanced'], allergens: [], goals: ['muscleGain', 'strength', 'fitness'] },
+        { name: 'Lencsés quinoa tál sült zöldségekkel', desc: 'Rostban gazdag vegetáriánus ebéd.', diets: ['vegetarian', 'vegan'], allergens: [], goals: ['weightLoss', 'fitness'] },
+        { name: 'Tofus zöldségwok karfiolrizzsel', desc: 'Tejmentes, növényi alapú könnyebb fogás.', diets: ['vegan', 'vegetarian'], allergens: ['soy'], goals: ['weightLoss', 'fitness'] },
+        { name: 'Marhahús bulgurral és zöldbabbal', desc: 'Nagyobb energiaszükséglethez igazított ebéd.', diets: ['balanced'], allergens: ['gluten'], goals: ['muscleGain', 'strength'] },
+        { name: 'Lazac salátával és avokádóval', desc: 'Alacsonyabb szénhidrát, jó zsiradékokkal.', diets: ['balanced', 'keto'], allergens: ['fish'], goals: ['weightLoss', 'fitness', 'strength'] },
+        { name: 'Csirkés cézár saláta kruton nélkül', desc: 'Diétásabb, fehérjedús választás.', diets: ['balanced', 'keto'], allergens: ['egg', 'lactose', 'fish'], goals: ['weightLoss', 'fitness'] },
+        { name: 'Vegetáriánus curry csicseriborsóval', desc: 'Meleg, laktató húsmentes ebéd.', diets: ['vegetarian', 'vegan'], allergens: [], goals: ['fitness', 'muscleGain'] }
+    ],
+    dinner: [
+        { name: 'Sült hekk párolt zöldségekkel', desc: 'Könnyebb vacsora, magas fehérjetartalommal.', diets: ['balanced'], allergens: ['fish'], goals: ['weightLoss', 'fitness'] },
+        { name: 'Csirkés tortilla tál', desc: 'Jó esti regenerációhoz, kontrollált szénhidráttal.', diets: ['balanced'], allergens: ['gluten'], goals: ['fitness', 'muscleGain'] },
+        { name: 'Túrókrém zöldséghasábokkal', desc: 'Gyors, magas fehérjés vacsora.', diets: ['balanced', 'vegetarian'], allergens: ['lactose'], goals: ['weightLoss', 'fitness'] },
+        { name: 'Sült tofu saláta olívás dresszinggel', desc: 'Növényi alapú, könnyű vacsora.', diets: ['vegan', 'vegetarian'], allergens: ['soy'], goals: ['weightLoss', 'fitness'] },
+        { name: 'Marhahúsgolyók sült zöldségekkel', desc: 'Tartalmasabb esti étkezés aktív napokra.', diets: ['balanced', 'keto'], allergens: ['egg'], goals: ['strength', 'muscleGain'] },
+        { name: 'Rántottas gombával és salátával', desc: 'Alacsonyabb szénhidrát, jól telít.', diets: ['balanced', 'vegetarian', 'keto'], allergens: ['egg'], goals: ['weightLoss', 'fitness'] },
+        { name: 'Grillezett pulyka kuszkusszal', desc: 'Kiegyensúlyozott esti főétel.', diets: ['balanced'], allergens: ['gluten'], goals: ['fitness', 'muscleGain'] },
+        { name: 'Vegán Buddha-tál hummusszal', desc: 'Színes, rostos és növényi vacsora.', diets: ['vegan', 'vegetarian'], allergens: ['sesame'], goals: ['fitness', 'weightLoss'] }
+    ],
+    snack: [
+        { name: 'Alma mandulával', desc: 'Egyszerű, gyors snack két étkezés között.', diets: ['balanced', 'vegetarian', 'vegan'], allergens: ['nuts'], goals: ['weightLoss', 'fitness'] },
+        { name: 'Skyr áfonyával', desc: 'Magas fehérje, alacsonyabb kalória.', diets: ['balanced', 'vegetarian'], allergens: ['lactose'], goals: ['weightLoss', 'fitness', 'muscleGain'] },
+        { name: 'Fehérjeturmix banánnal', desc: 'Edzés körüli praktikus kiegészítés.', diets: ['balanced', 'vegetarian'], allergens: ['lactose'], goals: ['muscleGain', 'strength'] },
+        { name: 'Humusz répa- és uborkahasábokkal', desc: 'Növényi alapú, könnyű snack.', diets: ['vegan', 'vegetarian'], allergens: ['sesame'], goals: ['weightLoss', 'fitness'] },
+        { name: 'Főtt tojás és paprika', desc: 'Egyszerű, sós snack.', diets: ['balanced', 'vegetarian', 'keto'], allergens: ['egg'], goals: ['weightLoss', 'strength', 'fitness'] },
+        { name: 'Avokádókrém magvas keksszel', desc: 'Egészséges zsírokkal támogatott köztes étkezés.', diets: ['balanced', 'vegetarian'], allergens: ['gluten', 'sesame'], goals: ['fitness'] },
+        { name: 'Kókuszos chiapuding', desc: 'Desszertszerű, de kontrollált snack.', diets: ['vegan', 'vegetarian', 'keto'], allergens: [], goals: ['weightLoss', 'fitness'] },
+        { name: 'Diómix és bogyós gyümölcs', desc: 'Energiadúsabb köztes étkezés.', diets: ['balanced', 'vegetarian', 'vegan', 'keto'], allergens: ['nuts'], goals: ['muscleGain', 'strength', 'fitness'] }
+    ]
+};
+
+const DAILY_MEAL_RATIOS = {
+    breakfast: 0.25,
+    lunch: 0.35,
+    dinner: 0.25,
+    snack: 0.15
+};
+
+const DAILY_MEAL_LABELS = {
+    breakfast: 'Reggeli',
+    lunch: 'Ebéd',
+    dinner: 'Vacsora',
+    snack: 'Snack'
+};
+
+const getDietPreference = (dietTypes) => {
+    const normalizedDietTypes = parseJsonArray(dietTypes).map(normalizeText);
+    if (normalizedDietTypes.includes('vegan')) return 'vegan';
+    if (normalizedDietTypes.includes('vegetarian')) return 'vegetarian';
+    if (normalizedDietTypes.includes('keto')) return 'keto';
+    return 'balanced';
+};
+
+const getAllergyFlags = (allergies) => {
+    const normalizedAllergies = normalizeText(allergies);
+    return {
+        lactose: /lakt|tej|sajt|joghurt|tejsz|vaj|túró|turo/.test(normalizedAllergies),
+        gluten: /glut|búza|buza|liszt|kenyér|kenyer|tészta|teszta/.test(normalizedAllergies),
+        egg: /tojás|tojas/.test(normalizedAllergies),
+        nuts: /dió|dio|mogyor|mandula|kesu|kesudió|pisztácia|pisztacia/.test(normalizedAllergies),
+        fish: /hal|lazac|tonhal|hekk|pisztráng|pisztrang|tőkehal|tokehal/.test(normalizedAllergies),
+        soy: /szója|szoja|tofu/.test(normalizedAllergies),
+        sesame: /szezám|szezam|tahini/.test(normalizedAllergies)
+    };
+};
+
+const getRecommendedCalories = (goal, weightKg) => {
+    const safeWeight = Number(weightKg) > 0 ? Number(weightKg) : 75;
+    if (goal === 'weightLoss') return Math.round(Math.max(1400, safeWeight * 24));
+    if (goal === 'muscleGain') return Math.round(Math.max(2200, safeWeight * 33));
+    if (goal === 'strength') return Math.round(Math.max(2400, safeWeight * 32));
+    return Math.round(Math.max(1800, safeWeight * 28));
+};
+
+const isMealCompatible = (meal, dietPreference, allergyFlags, goal) => {
+    if (goal && Array.isArray(meal.goals) && !meal.goals.includes(goal)) {
+        return false;
+    }
+
+    if (dietPreference === 'vegan' && !meal.diets.includes('vegan')) {
+        return false;
+    }
+    if (dietPreference === 'vegetarian' && !meal.diets.some((diet) => diet === 'vegetarian' || diet === 'vegan')) {
+        return false;
+    }
+    if (dietPreference === 'keto' && !meal.diets.includes('keto')) {
+        return false;
+    }
+
+    return !Object.entries(allergyFlags).some(([allergy, enabled]) => enabled && meal.allergens.includes(allergy));
+};
+
+const pickDeterministicMeal = (mealType, candidates, seed) => {
+    if (!candidates.length) return null;
+    const index = Math.abs(seed + mealType.length * 11) % candidates.length;
+    return candidates[index];
+};
+
+const buildDailyRecommendations = ({ userId, goal, weightKg, dietTypes, allergies, wantsDietRecommendations }) => {
+    if (wantsDietRecommendations === 'no') {
+        return {
+            recommendations: [],
+            calorieTarget: 0,
+            recommendationDate: new Date().toISOString().split('T')[0],
+            recommendationDateLabel: new Date().toLocaleDateString('hu-HU'),
+            recommendationNote: 'A kérdőív alapján nem kértél étrendi ajánlást.'
+        };
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const daySeed = Math.floor(today.getTime() / 86400000) + Number(userId || 0) * 17;
+    const dietPreference = getDietPreference(dietTypes);
+    const allergyFlags = getAllergyFlags(allergies);
+    const calorieTarget = getRecommendedCalories(goal, weightKg);
+
+    const recommendations = Object.keys(DAILY_MEAL_LIBRARY).map((mealType, index) => {
+        const allMeals = DAILY_MEAL_LIBRARY[mealType];
+        const filteredMeals = allMeals.filter((meal) => isMealCompatible(meal, dietPreference, allergyFlags, goal));
+        const fallbackMeals = filteredMeals.length > 0
+            ? filteredMeals
+            : allMeals.filter((meal) => !Object.entries(allergyFlags).some(([allergy, enabled]) => enabled && meal.allergens.includes(allergy)));
+        const selectedMeal = pickDeterministicMeal(mealType, fallbackMeals.length > 0 ? fallbackMeals : allMeals, daySeed + index * 13);
+        const calories = Math.round(calorieTarget * DAILY_MEAL_RATIOS[mealType]);
+
+        return {
+            meal_type: mealType,
+            mealTypeLabel: DAILY_MEAL_LABELS[mealType],
+            name: selectedMeal?.name || 'Ajánlás nem elérhető',
+            description: selectedMeal?.desc || 'Ehhez a kombinációhoz jelenleg nincs pontos ajánlat.',
+            calories
+        };
+    });
+
+    return {
+        recommendations,
+        calorieTarget,
+        recommendationDate: today.toISOString().split('T')[0],
+        recommendationDateLabel: today.toLocaleDateString('hu-HU'),
+        recommendationNote: 'Az ajánlott étrend 24 óránként automatikusan frissül a kérdőív adatai alapján.'
+    };
+};
+
+const WORKOUT_DAY_OPTIONS = {
+    '0': ['monday', 'wednesday'],
+    '1-2': ['monday', 'thursday'],
+    '2': ['monday', 'thursday'],
+    '3': ['monday', 'wednesday', 'friday'],
+    '3-4': ['monday', 'wednesday', 'friday', 'saturday'],
+    '4': ['monday', 'tuesday', 'thursday', 'friday'],
+    '5+': ['monday', 'tuesday', 'wednesday', 'friday', 'saturday']
+};
+
+const WORKOUT_DAY_LABELS = {
+    monday: 'Hétfő',
+    tuesday: 'Kedd',
+    wednesday: 'Szerda',
+    thursday: 'Csütörtök',
+    friday: 'Péntek',
+    saturday: 'Szombat',
+    sunday: 'Vasárnap'
+};
+
+const getExercisePrescription = (goal, experienceLevel, exerciseName, exerciseIndex) => {
+    const normalizedGoal = normalizeText(goal);
+    const normalizedExperience = normalizeText(experienceLevel);
+    const normalizedExercise = normalizeText(exerciseName);
+    const isAccessory = /bicepsz|tricepsz|oldalemelés|oldalemeles|vádli|vadli|has|plank|core|mobilit|nyújt|nyujt/.test(normalizedExercise);
+    const isCardio = /fut|bicikli|kerékpár|kerekpar|séta|seta|intervall|mobilizáció|mobilizacio|nyújt|nyujt/.test(normalizedExercise);
+
+    if (isCardio) {
+        if (normalizedGoal === 'weightloss') return exerciseIndex === 0 ? '1 x 25-35 perc' : '1 x 10-15 perc';
+        return exerciseIndex === 0 ? '1 x 20-30 perc' : '1 x 8-12 perc';
+    }
+
+    if (normalizedGoal === 'strength') {
+        return isAccessory
+            ? (normalizedExperience === 'advanced' ? '4 x 8-10' : '3 x 10-12')
+            : (normalizedExperience === 'advanced' ? '5 x 4-6' : '4 x 5-8');
+    }
+
+    if (normalizedGoal === 'musclegain') {
+        return isAccessory
+            ? (normalizedExperience === 'beginner' ? '3 x 12-15' : '4 x 10-12')
+            : (normalizedExperience === 'beginner' ? '3 x 8-10' : '4 x 8-10');
+    }
+
+    if (normalizedGoal === 'weightloss') {
+        return isAccessory ? '3 x 12-15' : '3 x 10-12';
+    }
+
+    return isAccessory ? '3 x 12-15' : '3 x 8-12';
+};
+
+const withExercisePrescriptions = (goal, experienceLevel, exercises) => exercises.map((exerciseName, exerciseIndex) => ({
+    name: exerciseName,
+    prescription: getExercisePrescription(goal, experienceLevel, exerciseName, exerciseIndex)
+}));
+
+const buildWorkoutRecommendation = ({ goal, experienceLevel, weeklyTrainingDays, trainingTypes, trainingLocation, preferredWeeklyFrequency, wantsWorkoutPlanRecommendation }) => {
+    if (wantsWorkoutPlanRecommendation === 'no') {
+        return {
+            recommendedPlan: [],
+            recommendationNote: 'A kérdőív alapján nem kértél edzésterv mintát.'
+        };
+    }
+
+    const normalizedGoal = normalizeText(goal);
+    const normalizedExperience = normalizeText(experienceLevel);
+    const normalizedTrainingTypes = parseJsonArray(trainingTypes).map(normalizeText);
+    const normalizedLocation = normalizeText(trainingLocation);
+    const frequencyKey = normalizeText(preferredWeeklyFrequency || weeklyTrainingDays);
+    const selectedDays = WORKOUT_DAY_OPTIONS[frequencyKey] || WORKOUT_DAY_OPTIONS[normalizeText(weeklyTrainingDays)] || ['monday', 'wednesday', 'friday'];
+
+    let template = [];
+    let recommendationNote = 'A mintaedzésterv a céljaid és a kérdőív válaszai alapján készült.';
+
+    if (normalizedGoal === 'musclegain') {
+        template = [
+            { type: 'upper', title: 'Felsőtest erősítés', exercises: ['Fekvenyomás', 'Evezés', 'Vállból nyomás', 'Bicepsz karhajlítás rúddal', 'Tricepsz letolás csigán'] },
+            { type: 'lower', title: 'Alsótest alap', exercises: ['Guggolás', 'Lábnyomás', 'Combhajlító gép', 'Álló vádliemelés', 'Hasprés padon'] },
+            { type: 'full_body', title: 'Teljes testes volumen', exercises: ['Ferdepados nyomás', 'Lehúzás csigán', 'Kitörés', 'Oldalemelés', 'Plank'] },
+            { type: 'upper', title: 'Felsőtest hipertrofia', exercises: ['Tárogatás', 'Döntött törzsű evezés', 'Oldalemelés', 'Kalapács bicepsz', 'Tricepsz letolás'] },
+            { type: 'lower', title: 'Alsótest + törzs', exercises: ['Román felhúzás', 'Bolgár guggolás', 'Lábhajlítás gépen', 'Ülő vádliemelés', 'Haskerék'] }
+        ];
+    } else if (normalizedGoal === 'strength') {
+        template = [
+            { type: 'push', title: 'Nyomó nap', exercises: ['Fekvenyomás', 'Vállból nyomás', 'Tolódzkodás', 'Tricepsz szűk nyomás'] },
+            { type: 'pull', title: 'Húzó nap', exercises: ['Felhúzás', 'Evezés', 'Húzódzkodás', 'Bicepsz rúddal'] },
+            { type: 'legs', title: 'Láb nap', exercises: ['Guggolás', 'Előlguggolás', 'Combfeszítő', 'Vádli'] },
+            { type: 'full_body', title: 'Technikai teljes test', exercises: ['Könnyű guggolás', 'Könnyű fekvenyomás', 'Evezés', 'Törzs'] }
+        ];
+        recommendationNote = 'Az edzésterv minta az erőfejlesztő alapgyakorlatokra helyezi a hangsúlyt.';
+    } else if (normalizedGoal === 'weightloss') {
+        template = [
+            { type: 'full_body', title: 'Teljes testes kör', exercises: ['Guggolás', 'Fekvőtámasz', 'Evezés', 'Kitörés', 'Plank'] },
+            { type: 'cardio', title: 'Kardió és mobilitás', exercises: ['Tempós séta vagy bicikli 35 perc', 'Mobilizáció', 'Nyújtás'] },
+            { type: 'full_body', title: 'Teljes testes erősítés', exercises: ['Kettlebell swing', 'Lehúzás csigán', 'Vállból nyomás', 'Hasprés'] },
+            { type: 'cardio', title: 'Intervall kardió', exercises: ['Intervall futás 20 perc', 'Könnyű core gyakorlatok'] }
+        ];
+        recommendationNote = 'A mintaedzésterv a kalóriafelhasználást és a fenntartható terhelést támogatja.';
+    } else {
+        template = [
+            { type: 'full_body', title: 'Általános teljes test', exercises: ['Guggolás', 'Fekvenyomás', 'Lehúzás', 'Oldalemelés', 'Plank'] },
+            { type: 'cardio', title: 'Kardió és állóképesség', exercises: ['Kocogás vagy kerékpár 30 perc', 'Mobilitás', 'Nyújtás'] },
+            { type: 'upper', title: 'Felsőtest tónus', exercises: ['Ferdepados nyomás', 'Evezés', 'Bicepsz karhajlítás kézi súlyzóval', 'Tricepsz nyújtás fej fölött'] },
+            { type: 'lower', title: 'Alsótest stabilitás', exercises: ['Kitörés', 'Lábnyomás', 'Csípőemelés padon', 'Fordított hasprés'] }
+        ];
+    }
+
+    if (normalizedTrainingTypes.includes('cardio') && !template.some((entry) => entry.type === 'cardio')) {
+        template.push({ type: 'cardio', title: 'Kardió blokk', exercises: ['Futópad 25-30 perc', 'Rövid mobilizáció', 'Levezetés'] });
+    }
+
+    if (normalizedLocation === 'home') {
+        template = template.map((entry) => ({
+            ...entry,
+            exercises: entry.exercises.map((exercise) => {
+                if (exercise === 'Fekvenyomás') return 'Fekvőtámasz';
+                if (exercise === 'Lehúzás csigán') return 'Gumiszalagos lehúzás';
+                if (exercise === 'Lábnyomás') return 'Guggolás';
+                return exercise;
+            })
+        }));
+        recommendationNote += ' Az otthoni környezethez igazított gyakorlatokkal.';
+    }
+
+    const experienceSuffix = normalizedExperience === 'beginner'
+        ? 'Kezdő terheléssel, fókuszban a technika.'
+        : normalizedExperience === 'advanced'
+            ? 'Haladó bontással és nagyobb heti volumennel.'
+            : 'Közepes terheléssel és fokozatos fejlődéssel.';
+
+    return {
+        recommendedPlan: selectedDays.map((day, index) => {
+            const selectedTemplate = template[index % template.length];
+            return {
+                day,
+                dayLabel: WORKOUT_DAY_LABELS[day] || day,
+                workoutType: selectedTemplate.type,
+                title: selectedTemplate.title,
+                exercises: withExercisePrescriptions(goal, experienceLevel, selectedTemplate.exercises)
+            };
+        }),
+        recommendationNote: `${recommendationNote} ${experienceSuffix}`.trim()
+    };
 };
 
 const WORKOUT_TYPE_STORAGE_MAP = {
@@ -137,8 +440,27 @@ const requireAdmin = async (userId, res) => {
     return true;
 };
 
-ensureAdminSchema();
-ensureWorkoutSchema();
+const initializeDatabase = async () => {
+    for (let attempt = 1; attempt <= DB_MAX_RETRIES; attempt += 1) {
+        try {
+            const connection = await pool.getConnection();
+            console.log('✅ Sikeresen csatlakozva a MySQL adatbázishoz!');
+            connection.release();
+            await ensureAdminSchema();
+            await ensureWorkoutSchema();
+            return;
+        } catch (error) {
+            console.error(`❌ Hiba az adatbázis csatlakozáskor (próba ${attempt}/${DB_MAX_RETRIES}):`, error.message);
+            if (attempt === DB_MAX_RETRIES) {
+                console.error('❌ Az adatbázis nem vált elérhetővé időben.');
+                return;
+            }
+            await wait(DB_RETRY_DELAY_MS);
+        }
+    }
+};
+
+initializeDatabase();
 
 // -------------------- REGISZTRÁCIÓ --------------------
 app.get('/api/register/check-email', async (req, res) => {
@@ -195,21 +517,22 @@ app.post('/api/questionnaire', async (req, res) => {
         const query = `
             INSERT INTO user_questionnaires (
                 user_id, gender, height_cm, weight_kg, birth_date, activity_level, experience_level, weekly_training_days, training_types,
-                current_injury, chronic_conditions, medications, main_goal, goal_timeframe, specific_goal, motivations,
+                current_injury, chronic_conditions, medications, main_goal, goal_timeframe, specific_goal, motivations, wants_workout_plan_recommendations,
                 sleep_hours, stress_level, sitting_time, diet_types, allergies, diet_control_level, wants_diet_recommendations,
                 training_location, preferred_workout_duration_mins, preferred_weekly_frequency, physique_satisfaction, energy_level, obstacles, additional_comments
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE 
                 gender=VALUES(gender), height_cm=VALUES(height_cm), weight_kg=VALUES(weight_kg), 
                 birth_date=VALUES(birth_date), main_goal=VALUES(main_goal), allergies=VALUES(allergies),
                 activity_level=VALUES(activity_level), experience_level=VALUES(experience_level),
-                weekly_training_days=VALUES(weekly_training_days)
+                weekly_training_days=VALUES(weekly_training_days),
+                wants_workout_plan_recommendations=VALUES(wants_workout_plan_recommendations)
         `;
         const values = [
             userId, q.personalInfo.gender, q.personalInfo.height, q.personalInfo.weight, q.personalInfo.birthDate, q.personalInfo.activity,
             q.trainingExperience.frequency, q.trainingExperience.weeklyTraining, JSON.stringify(q.trainingExperience.trainingTypes || []),
             q.healthInfo.currentInjury || 'no', JSON.stringify(q.healthInfo.chronicConditions || []), q.healthInfo.medications,
-            q.goals.mainGoal, q.goals.timeframe, q.goals.specificGoal, JSON.stringify(q.goals.motivation || []),
+            q.goals.mainGoal, q.goals.timeframe, q.goals.specificGoal, JSON.stringify(q.goals.motivation || []), q.goals.workoutPlanRecommendation || 'no',
             q.lifestyle.sleepHours, q.lifestyle.stressLevel, q.lifestyle.sittingTime,
             JSON.stringify(q.nutrition.diet || []), q.nutrition.allergies, q.nutrition.dietControl, q.nutrition.dietRecommendations,
             q.preferences.trainingLocation, q.preferences.workoutTime, q.preferences.preferredFrequency,
@@ -281,7 +604,8 @@ app.get('/api/questionnaire/:userId', async (req, res) => {
                     mainGoal: row.main_goal || '',
                     timeframe: row.goal_timeframe || '',
                     specificGoal: row.specific_goal || '',
-                    motivation: parseJsonArray(row.motivations)
+                    motivation: parseJsonArray(row.motivations),
+                    workoutPlanRecommendation: row.wants_workout_plan_recommendations || 'no'
                 },
                 lifestyle: {
                     sleepHours: row.sleep_hours || '',
@@ -364,8 +688,13 @@ app.get('/api/dashboard/:userId', async (req, res) => {
             }
         });
         const [userStats] = await pool.query(`SELECT total_points, current_level FROM users WHERE id = ?`, [userId]);
-        const [qRows] = await pool.query('SELECT main_goal, allergies FROM user_questionnaires WHERE user_id = ?', [userId]);
+        const [qRows] = await pool.query(
+            'SELECT main_goal, weight_kg, diet_types, allergies, wants_diet_recommendations, wants_workout_plan_recommendations, experience_level, weekly_training_days, training_types, training_location, preferred_weekly_frequency FROM user_questionnaires WHERE user_id = ?',
+            [userId]
+        );
         let recommendedMeals = [];
+        let dailyDietPlan = { recommendations: [], calorieTarget: 0, recommendationDate: '', recommendationDateLabel: '', recommendationNote: '' };
+        let workoutPlanRecommendation = { recommendedPlan: [], recommendationNote: '' };
         let recommendedWorkoutText = 'Töltsd ki a kérdőívet a személyre szabott ajánlásokért!';
         if (qRows.length > 0) {
             const goal = qRows[0].main_goal;
@@ -383,6 +712,25 @@ app.get('/api/dashboard/:userId', async (req, res) => {
             if (allergies.includes('laktóz') || allergies.includes('tej')) {
                 recommendedMeals.push({ name: '🌟 Laktózmentes Turmix', cals: 200, desc: 'Laktózérzékenyeknek!' });
             }
+
+            dailyDietPlan = buildDailyRecommendations({
+                userId,
+                goal,
+                weightKg: qRows[0].weight_kg,
+                dietTypes: qRows[0].diet_types,
+                allergies: qRows[0].allergies,
+                wantsDietRecommendations: qRows[0].wants_diet_recommendations
+            });
+
+            workoutPlanRecommendation = buildWorkoutRecommendation({
+                goal,
+                experienceLevel: qRows[0].experience_level,
+                weeklyTrainingDays: qRows[0].weekly_training_days,
+                trainingTypes: qRows[0].training_types,
+                trainingLocation: qRows[0].training_location,
+                preferredWeeklyFrequency: qRows[0].preferred_weekly_frequency,
+                wantsWorkoutPlanRecommendation: qRows[0].wants_workout_plan_recommendations
+            });
         }
         const [weightRows] = await pool.query(
             'SELECT weight_kg as weight, logged_at as date FROM weight_logs WHERE user_id = ? ORDER BY logged_at ASC, created_at ASC',
@@ -391,8 +739,24 @@ app.get('/api/dashboard/:userId', async (req, res) => {
 
         res.json({
             success: true,
-            nutrition: { todayMeals: meals, dailyCalories: meals.reduce((sum, meal) => sum + meal.calories, 0), macros: { protein: 0, carbs: 0, fat: 0 }, recommendations: recommendedMeals },
-            workout: { weeklyPlan: Object.values(groupedWorkouts), stats: { totalWorkouts: Object.keys(groupedWorkouts).length, completedWorkouts: 0 }, aiRecommendation: recommendedWorkoutText },
+            nutrition: {
+                todayMeals: meals,
+                dailyCalories: meals.reduce((sum, meal) => sum + meal.calories, 0),
+                macros: { protein: 0, carbs: 0, fat: 0 },
+                recommendations: dailyDietPlan.recommendations,
+                legacyRecommendations: recommendedMeals,
+                calorieTarget: dailyDietPlan.calorieTarget,
+                recommendationDate: dailyDietPlan.recommendationDate,
+                recommendationDateLabel: dailyDietPlan.recommendationDateLabel,
+                recommendationNote: dailyDietPlan.recommendationNote
+            },
+            workout: {
+                weeklyPlan: Object.values(groupedWorkouts),
+                stats: { totalWorkouts: Object.keys(groupedWorkouts).length, completedWorkouts: 0 },
+                aiRecommendation: recommendedWorkoutText,
+                recommendedPlan: workoutPlanRecommendation.recommendedPlan,
+                recommendationNote: workoutPlanRecommendation.recommendationNote
+            },
             challenges: { level: userStats[0]?.current_level || 1, points: userStats[0]?.total_points || 0 },
             weightHistory: weightRows
         });

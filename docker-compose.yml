@@ -7,6 +7,12 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: powerplan
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
     volumes:
       - db_data:/var/lib/mysql
       - ./db/powerplan.sql:/docker-entrypoint-initdb.d/init.sql
@@ -20,7 +26,8 @@ services:
     environment:
       PMA_HOST: db
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   backend:
     build: ./Backend
@@ -33,7 +40,8 @@ services:
     env_file:
       - ./Backend/.env
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     command: sh -c "npm install && node --watch server.js"
 
   frontend:
