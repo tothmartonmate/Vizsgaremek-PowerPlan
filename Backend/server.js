@@ -2,6 +2,8 @@ const express = require('express');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
 const cors = require('cors');
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const app = express();
@@ -24,6 +26,89 @@ const pool = mysql.createPool({
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const normalizeUserRole = (value) => (String(value || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user');
+
+let mailTransporterPromise;
+const getMailTransporter = async () => {
+    if (!mailTransporterPromise) {
+        mailTransporterPromise = (async () => {
+            const smtpService = String(process.env.SMTP_SERVICE || process.env.EMAIL_SERVICE || '').trim();
+            const smtpHost = String(process.env.SMTP_HOST || process.env.MAIL_HOST || process.env.EMAIL_HOST || '').trim();
+            const smtpPort = Number(process.env.SMTP_PORT || process.env.MAIL_PORT || process.env.EMAIL_PORT || 0);
+            const smtpUser = String(process.env.SMTP_USER || process.env.MAIL_USER || process.env.EMAIL_USER || '').trim();
+            const smtpPass = String(process.env.SMTP_PASS || process.env.MAIL_PASS || process.env.EMAIL_PASS || '').trim();
+            const smtpSecure = String(process.env.SMTP_SECURE || process.env.EMAIL_SECURE || '').trim().toLowerCase() === 'true' || smtpPort === 465;
+
+            if ((!smtpService && !smtpHost) || !smtpUser || !smtpPass) {
+                throw new Error('Az email küldés nincs konfigurálva a szerveren. Állítsd be az EMAIL_HOST vagy SMTP_HOST, az EMAIL_PORT vagy SMTP_PORT, az EMAIL_USER vagy SMTP_USER, az EMAIL_PASS vagy SMTP_PASS, valamint az EMAIL_FROM vagy MAIL_FROM változókat.');
+            }
+
+            const transporter = nodemailer.createTransport(
+                smtpService
+                    ? {
+                        service: smtpService,
+                        auth: {
+                            user: smtpUser,
+                            pass: smtpPass
+                        }
+                    }
+                    : {
+                        host: smtpHost,
+                        port: smtpPort || 587,
+                        secure: smtpSecure,
+                        auth: {
+                            user: smtpUser,
+                            pass: smtpPass
+                        }
+                    }
+            );
+
+            return transporter;
+        })().catch((error) => {
+            mailTransporterPromise = null;
+            throw error;
+        });
+    }
+
+    return mailTransporterPromise;
+};
+
+const generateTemporaryPassword = (length = 10) => {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    const randomBytes = crypto.randomBytes(length);
+    let temporaryPassword = '';
+
+    for (let index = 0; index < length; index += 1) {
+        temporaryPassword += alphabet[randomBytes[index] % alphabet.length];
+    }
+
+    return temporaryPassword;
+};
+
+const buildForgotPasswordMail = (fullName, temporaryPassword) => ({
+    subject: 'PowerPlan - Ideiglenes jelszó',
+    text: [
+        `Szia ${fullName || 'PowerPlan felhasználó'}!`,
+        '',
+        'Új ideiglenes jelszót kértél a PowerPlan fiókodhoz.',
+        `Ideiglenes jelszó: ${temporaryPassword}`,
+        '',
+        'Ezzel a jelszóval be tudsz jelentkezni.',
+        'Belépés után a Profil oldalon meg tudod változtatni a jelszavadat.',
+        '',
+        'Ha nem te kérted ezt a módosítást, jelentkezz be és cseréld le a jelszavadat.'
+    ].join('\n'),
+    html: `
+        <div style="font-family: Arial, sans-serif; color: #1f2a44; line-height: 1.6;">
+            <h2 style="color: #e76f51;">PowerPlan jelszó-visszaállítás</h2>
+            <p>Szia ${fullName || 'PowerPlan felhasználó'}!</p>
+            <p>Új ideiglenes jelszót kértél a PowerPlan fiókodhoz.</p>
+            <p style="font-size: 18px;"><strong>Ideiglenes jelszó:</strong> <span style="color: #d62839;">${temporaryPassword}</span></p>
+            <p>Ezzel a jelszóval be tudsz jelentkezni.</p>
+            <p><strong>A belépés után a Profil oldalon meg tudod változtatni a jelszavadat.</strong></p>
+            <p>Ha nem te kérted ezt a módosítást, jelentkezz be és cseréld le a jelszavadat.</p>
+        </div>
+    `
+});
 
 let progressImageColumnPromise;
 let workoutSchemaPromise;
@@ -531,6 +616,70 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
+app.post('/api/forgot-password', async (req, res) => {
+    const email = String(req.body.email || '').trim();
+    if (!email) {
+        return res.status(400).json({ error: 'Az email cím megadása kötelező!' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        const [users] = await connection.query(
+            'SELECT id, full_name AS fullName, email FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1',
+            [email]
+        );
+
+        if (users.length === 0) {
+            await connection.rollback();
+            return res.json({
+                success: true,
+                message: 'Ha létezik ilyen email cím a rendszerben, elküldtük rá az ideiglenes jelszót.'
+            });
+        }
+
+        const user = users[0];
+        const temporaryPassword = generateTemporaryPassword();
+        const hashedPassword = await bcrypt.hash(temporaryPassword, 10);
+        await connection.query('UPDATE users SET password_hash = ? WHERE id = ?', [hashedPassword, user.id]);
+
+        try {
+            const transporter = await getMailTransporter();
+            const fromAddress = String(process.env.EMAIL_FROM || process.env.MAIL_FROM || process.env.SMTP_FROM || process.env.EMAIL_USER || process.env.SMTP_USER || '').trim();
+            if (!fromAddress) {
+                throw new Error('Hiányzik az EMAIL_FROM, MAIL_FROM vagy SMTP_FROM beállítás a szerveren.');
+            }
+
+            const mail = buildForgotPasswordMail(user.fullName, temporaryPassword);
+            await transporter.sendMail({
+                from: fromAddress,
+                to: user.email,
+                subject: mail.subject,
+                text: mail.text,
+                html: mail.html
+            });
+        } catch (mailError) {
+            console.error('Ideiglenes jelszó email küldési hiba:', mailError.message || mailError);
+            throw new Error('Az ideiglenes jelszó email küldése sikertelen volt.');
+        }
+
+        await connection.commit();
+        return res.json({
+            success: true,
+            message: 'Az ideiglenes jelszót elküldtük emailben. Belépés után a Profil oldalon meg tudod változtatni a jelszavadat.'
+        });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Elfelejtett jelszó hiba:', error);
+        return res.status(500).json({
+            error: 'Nem sikerült elküldeni az ideiglenes jelszót emailben.'
+        });
+    } finally {
+        connection.release();
+    }
+});
+
 // -------------------- KÉRDŐÍV MENTÉSE (POST) --------------------
 app.post('/api/questionnaire', async (req, res) => {
     const { userId, questionnaire: q } = req.body;
@@ -973,6 +1122,42 @@ app.put('/api/update-profile', async (req, res) => {
         res.status(500).json({ error: 'Szerverhiba!' });
     } finally {
         connection.release();
+    }
+});
+
+app.put('/api/change-password', async (req, res) => {
+    const { userId, currentPassword, newPassword } = req.body;
+
+    if (!userId) {
+        return res.status(400).json({ error: 'Hiányzó felhasználó azonosító!' });
+    }
+
+    if (!currentPassword || !newPassword) {
+        return res.status(400).json({ error: 'A jelenlegi és az új jelszó megadása kötelező!' });
+    }
+
+    if (String(newPassword).length < 6) {
+        return res.status(400).json({ error: 'Az új jelszónak legalább 6 karakter hosszúnak kell lennie!' });
+    }
+
+    try {
+        const [users] = await pool.query('SELECT password_hash FROM users WHERE id = ? LIMIT 1', [userId]);
+        if (users.length === 0) {
+            return res.status(404).json({ error: 'A felhasználó nem található!' });
+        }
+
+        const validPassword = await bcrypt.compare(currentPassword, users[0].password_hash);
+        if (!validPassword) {
+            return res.status(401).json({ error: 'A jelenlegi vagy ideiglenes jelszó hibás!' });
+        }
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [hashedPassword, userId]);
+
+        return res.json({ success: true, message: 'Jelszó sikeresen frissítve!' });
+    } catch (error) {
+        console.error('Jelszó módosítási hiba:', error);
+        return res.status(500).json({ error: 'Szerverhiba történt a jelszó módosításakor!' });
     }
 });
 

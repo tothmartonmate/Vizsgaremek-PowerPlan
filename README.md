@@ -64,3 +64,14 @@ A projekt során **a frontend fejlesztéséért és a felhasználói élmény ki
 ---
 
 > 📂 *Ez a projekt a szoftverfejlesztő és tesztelő képzés záróvizsgájának részeként készült.*
+
+## Jelszó-visszaállítás email konfiguráció
+- A jelszó-visszaállítás SMTP beállításokat igényel a backend oldalon.
+- Használható változók:
+  - `SMTP_SERVICE` vagy `SMTP_HOST`
+  - `SMTP_PORT`
+  - `SMTP_SECURE`
+  - `SMTP_USER`
+  - `SMTP_PASS`
+  - `MAIL_FROM`
+- A rendszer ideiglenes jelszót küld emailben, majd a felhasználó ezt a Profil oldalon módosíthatja.

@@ -424,7 +424,7 @@ const GymMap = ({ isActive }) => {
   const [mapMode, setMapMode] = useState('country');
   const [nearbyCenter, setNearbyCenter] = useState(null);
   const [visibleGyms, setVisibleGyms] = useState(ALL_GYMS);
-  const [mapMessage, setMapMessage] = useState(`Az országos nézet mind a ${ALL_GYMS.length} rögzített edzőtermet egyszerre mutatja Magyarország térképén.`);
+  const [mapMessage, setMapMessage] = useState(`Az országos nézet mind a ${ALL_GYMS.length} várost és az azokon belüli edzőtermeket egyszerre mutatja Magyarország térképén.`);
   const mapElementRef = useRef(null);
   const leafletMapRef = useRef(null);
   const markerLayerRef = useRef(null);
@@ -619,7 +619,7 @@ const GymMap = ({ isActive }) => {
         setMapMessage('A közelben nézetben nem volt 45 km-en belül találat, ezért a térkép a legközelebbi edzőtermeket mutatja.' );
       }
     } else {
-      setMapMessage(`Az országos nézet mind a ${ALL_GYMS.length} rögzített edzőtermet egyszerre mutatja Magyarország térképén.`);
+      setMapMessage(`Az országos nézet mind a ${ALL_GYMS.length} várost és az azokon belüli edzőtermeket egyszerre mutatja Magyarország térképén.`);
     }
 
     if (mapMode === 'country') {
@@ -704,7 +704,7 @@ const GymMap = ({ isActive }) => {
         <div className="gym-map-count-card">
           <span className="gym-map-count-label">Látható helyek</span>
           <strong>{mapMode === 'nearby' && nearbyCenter ? 'Közeli termek' : 'Országos lista'}</strong>
-          <span>{mapMode === 'nearby' && nearbyCenter ? 'Geolokáció alapján szűrve' : `${ALL_GYMS.length} terem az adatbázisban`}</span>
+          <span>{mapMode === 'nearby' && nearbyCenter ? 'Geolokáció alapján szűrve' : `${ALL_GYMS.length} város edzőtermekkel az adatbázisban`}</span>
         </div>
       </div>
       <div className="gym-map-frame-wrap">
@@ -801,6 +801,18 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     weight: '',
     birthDate: ''
   });
+  const [isProfileSaved, setIsProfileSaved] = useState(false);
+  const [passwordFormData, setPasswordFormData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [passwordVisibility, setPasswordVisibility] = useState({
+    currentPassword: false,
+    newPassword: false,
+    confirmPassword: false
+  });
+  const [savingPasswordChange, setSavingPasswordChange] = useState(false);
   
   // Jelvények és rekordok
   const [badges, setBadges] = useState([]);
@@ -1576,6 +1588,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     reader.onloadend = async () => {
       const base64 = reader.result;
       setProfileImage(base64);
+      setIsProfileSaved(false);
       localStorage.setItem(getProfileImageStorageKey(currentUser.id), base64);
       
       try {
@@ -1772,6 +1785,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
       });
       if (response.ok) {
         showToast('Profil frissítve!', 'success');
+        setIsProfileSaved(true);
         setEditingProfile(false);
         const savedUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
         savedUser.full_name = editFormData.fullName;
@@ -1811,6 +1825,80 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     } catch (error) {
       showToast('Hálózati hiba!', 'error');
     }
+  };
+
+  const handlePasswordChange = async () => {
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+
+    if (!currentUser.id || currentUser.id === 'demo-999') {
+      showToast('Demó módban nem módosítható a jelszó!', 'error');
+      return;
+    }
+
+    if (!passwordFormData.currentPassword || !passwordFormData.newPassword || !passwordFormData.confirmPassword) {
+      showToast('Minden jelszó mező kitöltése kötelező!', 'warning');
+      return;
+    }
+
+    if (passwordFormData.newPassword.length < 6) {
+      showToast('Az új jelszónak legalább 6 karakter hosszúnak kell lennie!', 'warning');
+      return;
+    }
+
+    if (passwordFormData.newPassword !== passwordFormData.confirmPassword) {
+      showToast('Az új jelszó és a megerősítés nem egyezik!', 'warning');
+      return;
+    }
+
+    setSavingPasswordChange(true);
+    try {
+      const response = await fetch('http://localhost:5001/api/change-password', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          userId: currentUser.id,
+          currentPassword: passwordFormData.currentPassword,
+          newPassword: passwordFormData.newPassword
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        showToast(data.error || 'Nem sikerült módosítani a jelszót.', 'error');
+        return;
+      }
+
+      showToast(data.message || 'Jelszó sikeresen frissítve!', 'success');
+      setPasswordFormData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (error) {
+      showToast('Hálózati hiba a jelszó módosításakor!', 'error');
+    } finally {
+      setSavingPasswordChange(false);
+    }
+  };
+
+  const handleProfileFieldChange = (field, value) => {
+    setIsProfileSaved(false);
+    setEditFormData((previousValue) => ({
+      ...previousValue,
+      [field]: value
+    }));
+  };
+
+  const handlePasswordFieldChange = (field, value) => {
+    setPasswordFormData((previousValue) => ({
+      ...previousValue,
+      [field]: value
+    }));
+  };
+
+  const togglePasswordVisibility = (field) => {
+    setPasswordVisibility((previousValue) => ({
+      ...previousValue,
+      [field]: !previousValue[field]
+    }));
   };
 
   const calculateAge = (birthDate) => {
@@ -2208,7 +2296,8 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
       month: 'long', 
       day: 'numeric', 
       hour: '2-digit', 
-      minute: '2-digit' 
+      minute: '2-digit',
+      second: '2-digit'
     });
   };
 
@@ -2235,7 +2324,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
           formatLocalDate(previousDate) === previousDayKey ? new Date() : previousDate
         ));
       }
-    }, 60000);
+    }, 1000);
     let timer;
     if (workoutActive) timer = setInterval(() => setWorkoutTime(prev => prev + 1), 1000);
     return () => {
@@ -3162,6 +3251,18 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
           <div className="card">
             <div className="section-header">
               <h2><i className="fas fa-envelope"></i> Üzeneteim</h2>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+                  const token = localStorage.getItem('powerplan_token');
+                  if (currentUser.id) {
+                    loadUserMessages(currentUser.id, token);
+                  }
+                }}
+              >
+                <i className="fas fa-rotate-right"></i> Frissítés
+              </button>
             </div>
             <div className="messages-layout">
               <div className="messages-compose-card">
@@ -3262,7 +3363,10 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
           <div className="card">
             <div className="section-header">
               <h2><i className="fas fa-user-circle"></i> Profilom</h2>
-              <button className="btn btn-secondary" onClick={() => setEditingProfile(!editingProfile)}>
+              <button className="btn btn-secondary" onClick={() => {
+                setEditingProfile(!editingProfile);
+                setIsProfileSaved(false);
+              }}>
                 <i className="fas fa-edit"></i> {editingProfile ? 'Mégse' : 'Szerkesztés'}
               </button>
             </div>
@@ -3281,30 +3385,96 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                 <div className="form-group">
                   <label>Teljes név</label>
                   <input type="text" className="form-control" value={editFormData.fullName} 
-                    onChange={(e) => setEditFormData({...editFormData, fullName: e.target.value})} />
+                    onChange={(e) => handleProfileFieldChange('fullName', e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label>Email</label>
                   <input type="email" className="form-control" value={editFormData.email} 
-                    onChange={(e) => setEditFormData({...editFormData, email: e.target.value})} />
+                    onChange={(e) => handleProfileFieldChange('email', e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label>Magasság (cm)</label>
                   <input type="number" className="form-control" value={editFormData.height} 
-                    onChange={(e) => setEditFormData({...editFormData, height: e.target.value})} />
+                    onChange={(e) => handleProfileFieldChange('height', e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label>Súly (kg)</label>
                   <input type="number" className="form-control" value={editFormData.weight} 
-                    onChange={(e) => setEditFormData({...editFormData, weight: e.target.value})} />
+                    onChange={(e) => handleProfileFieldChange('weight', e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label>Születési dátum</label>
                   <input type="date" className="form-control" value={editFormData.birthDate} 
-                    onChange={(e) => setEditFormData({...editFormData, birthDate: e.target.value})} />
+                    onChange={(e) => handleProfileFieldChange('birthDate', e.target.value)} />
                 </div>
-                <button className="btn btn-primary" onClick={handleProfileSave}>
-                  <i className="fas fa-save"></i> Mentés
+                <div className="profile-password-section">
+                  <h3 className="profile-password-title">Jelszó módosítása</h3>
+                  <p className="profile-password-help">Ha ideiglenes jelszóval léptél be, itt azonnal lecserélheted.</p>
+                  <div className="form-group">
+                    <label>Jelenlegi vagy ideiglenes jelszó</label>
+                    <div className="password-field-wrapper">
+                      <input
+                        type={passwordVisibility.currentPassword ? 'text' : 'password'}
+                        className="form-control password-field-input"
+                        value={passwordFormData.currentPassword}
+                        onChange={(e) => handlePasswordFieldChange('currentPassword', e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="password-visibility-toggle"
+                        onClick={() => togglePasswordVisibility('currentPassword')}
+                        aria-label={passwordVisibility.currentPassword ? 'Jelszó elrejtése' : 'Jelszó megjelenítése'}
+                      >
+                        <i className={`fas ${passwordVisibility.currentPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Új jelszó</label>
+                      <div className="password-field-wrapper">
+                        <input
+                          type={passwordVisibility.newPassword ? 'text' : 'password'}
+                          className="form-control password-field-input"
+                          value={passwordFormData.newPassword}
+                          onChange={(e) => handlePasswordFieldChange('newPassword', e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="password-visibility-toggle"
+                          onClick={() => togglePasswordVisibility('newPassword')}
+                          aria-label={passwordVisibility.newPassword ? 'Jelszó elrejtése' : 'Jelszó megjelenítése'}
+                        >
+                          <i className={`fas ${passwordVisibility.newPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label>Új jelszó megerősítése</label>
+                      <div className="password-field-wrapper">
+                        <input
+                          type={passwordVisibility.confirmPassword ? 'text' : 'password'}
+                          className="form-control password-field-input"
+                          value={passwordFormData.confirmPassword}
+                          onChange={(e) => handlePasswordFieldChange('confirmPassword', e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="password-visibility-toggle"
+                          onClick={() => togglePasswordVisibility('confirmPassword')}
+                          aria-label={passwordVisibility.confirmPassword ? 'Jelszó elrejtése' : 'Jelszó megjelenítése'}
+                        >
+                          <i className={`fas ${passwordVisibility.confirmPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <button className="btn btn-secondary" type="button" onClick={handlePasswordChange} disabled={savingPasswordChange}>
+                    <i className="fas fa-key"></i> {savingPasswordChange ? 'Jelszó mentése...' : 'Jelszó módosítása'}
+                  </button>
+                </div>
+                <button className={`btn btn-primary profile-save-button ${isProfileSaved ? 'saved' : ''}`} onClick={handleProfileSave}>
+                  <i className={`fas ${isProfileSaved ? 'fa-check-circle' : 'fa-save'}`}></i> {isProfileSaved ? 'Mentve' : 'Mentés'}
                 </button>
               </div>
             ) : (

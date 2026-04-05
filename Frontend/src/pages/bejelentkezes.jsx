@@ -39,6 +39,7 @@ function Bejelentkezes({ navigateTo, setIsLoggedIn }) {
   const [formData, setFormData] = useState({ email: '', password: '', remember: false });
   const [formErrors, setFormErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [toast, setToast] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -102,9 +103,32 @@ function Bejelentkezes({ navigateTo, setIsLoggedIn }) {
     }
   };
 
-  const handleForgotPassword = (e) => {
+  const handleForgotPassword = async (e) => {
     e.preventDefault();
-    showToast('🔧 Jelszó visszaállítás fejlesztés alatt.', 'warning');
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!formData.email) {
+      showToast('Add meg az email címedet a jelszó visszaállításához.', 'warning');
+      return;
+    }
+
+    if (!emailRegex.test(formData.email)) {
+      showToast('Érvényes email címet adj meg a jelszó visszaállításához.', 'warning');
+      return;
+    }
+
+    setIsResettingPassword(true);
+    try {
+      const response = await axios.post(`${API_URL}/forgot-password`, {
+        email: formData.email
+      });
+      showToast(response.data.message || 'Az ideiglenes jelszót elküldtük emailben.', 'success');
+    } catch (error) {
+      if (error.response) showToast(error.response.data.error || '❌ Nem sikerült elküldeni az ideiglenes jelszót.', 'error');
+      else if (error.request) showToast('❌ Nem sikerült kapcsolódni a szerverhez!', 'error');
+      else showToast('❌ Váratlan hiba történt.', 'error');
+    } finally {
+      setIsResettingPassword(false);
+    }
   };
 
   return (
@@ -144,7 +168,14 @@ function Bejelentkezes({ navigateTo, setIsLoggedIn }) {
                 <input type="checkbox" id="remember" name="remember" checked={formData.remember} onChange={handleInputChange} disabled={isLoading} />
                 <label htmlFor="remember">Emlékezz rám</label>
               </div>
-              <a href="#" className="forgot-password" onClick={handleForgotPassword}>Elfelejtetted a jelszavad?</a>
+              <a
+                href="#"
+                className="forgot-password"
+                onClick={handleForgotPassword}
+                style={isResettingPassword ? { pointerEvents: 'none', opacity: 0.7 } : undefined}
+              >
+                {isResettingPassword ? 'Ideiglenes jelszó küldése...' : 'Elfelejtetted a jelszavad?'}
+              </a>
             </div>
             <button type="submit" className="submit-button" disabled={isLoading}>
               {isLoading ? <><i className="fas fa-spinner fa-spin"></i> BEJELENTKEZÉS...</> : 'BEJELENTKEZÉS'}
