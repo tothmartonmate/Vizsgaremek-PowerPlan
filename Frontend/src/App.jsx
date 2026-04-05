@@ -284,9 +284,9 @@ function App() {
           <div className="contact-info">
             <h3>Elérhetőségeink</h3>
             <div className="contact-details">
-              <div className="contact-detail"><i className="fas fa-map-marker-alt"></i><p>1234 Budapest, Fitness utca 7.</p></div>
+                <div className="contact-detail"><i className="fas fa-map-marker-alt"></i><p>Keszthely, Zámor utca 10.</p></div>
               <div className="contact-detail"><i className="fas fa-phone"></i><p>+36 1 234 5678</p></div>
-              <div className="contact-detail"><i className="fas fa-envelope"></i><p>info@powerplan.hu</p></div>
+                <div className="contact-detail"><i className="fas fa-envelope"></i><p>powerplanweb@gmail.com</p></div>
             </div>
           </div>
           <div className="contact-form">
@@ -319,10 +319,8 @@ function App() {
           <div className="footer-column">
             <h3>Kövess minket</h3>
             <div className="social-icons">
-              <a href="#"><i className="fab fa-facebook-f"></i></a>
-              <a href="#"><i className="fab fa-instagram"></i></a>
-              <a href="#"><i className="fab fa-youtube"></i></a>
-              <a href="#"><i className="fab fa-tiktok"></i></a>
+              <a href="https://www.facebook.com/groups/1648902269490507/" target="_blank" rel="noreferrer"><i className="fab fa-facebook-f"></i></a>
+              <a href="https://www.instagram.com/powerplanweb2026/" target="_blank" rel="noreferrer"><i className="fab fa-instagram"></i></a>
             </div>
           </div>
         </div>
