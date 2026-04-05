@@ -742,8 +742,17 @@ app.get('/api/questionnaire/:userId', async (req, res) => {
              WHERE q.user_id = ?`,
             [req.params.userId]
         );
+        const [latestWeightRows] = await pool.query(
+            `SELECT weight_kg
+             FROM weight_logs
+             WHERE user_id = ?
+             ORDER BY logged_at DESC, created_at DESC
+             LIMIT 1`,
+            [req.params.userId]
+        );
         if (rows.length === 0) return res.status(404).json({ message: 'Nincs kérdőív.' });
         const row = rows[0];
+        const currentWeight = latestWeightRows.length > 0 ? latestWeightRows[0].weight_kg : row.weight_kg;
         const nameParts = String(row.full_name || '').trim().split(/\s+/).filter(Boolean);
         const firstName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
         const lastName = nameParts[0] || '';
@@ -757,7 +766,8 @@ app.get('/api/questionnaire/:userId', async (req, res) => {
                     lastName,
                     gender: row.gender || '',
                     height: row.height_cm || '',
-                    weight: row.weight_kg || '',
+                    weight: currentWeight || '',
+                    startingWeight: row.weight_kg || '',
                     birthDate: row.birth_date || '',
                     activity: row.activity_level || ''
                 },
@@ -1077,8 +1087,19 @@ app.put('/api/update-profile', async (req, res) => {
     try {
         await connection.beginTransaction();
 
+        const [latestWeightRows] = await connection.query(
+            `SELECT weight_kg
+             FROM weight_logs
+             WHERE user_id = ?
+             ORDER BY logged_at DESC, created_at DESC
+             LIMIT 1`,
+            [userId]
+        );
         const [existingRows] = await connection.query('SELECT weight_kg FROM user_questionnaires WHERE user_id = ?', [userId]);
-        const previousWeight = existingRows.length ? parseFloat(String(existingRows[0].weight_kg).replace(',', '.')) : null;
+        const previousWeightSource = latestWeightRows.length > 0 ? latestWeightRows[0].weight_kg : existingRows[0]?.weight_kg;
+        const previousWeight = previousWeightSource !== undefined && previousWeightSource !== null
+            ? parseFloat(String(previousWeightSource).replace(',', '.'))
+            : null;
         
         const newWeight = weight !== undefined && weight !== null ? parseFloat(String(weight).replace(',', '.')) : NaN;
         
@@ -1109,10 +1130,11 @@ app.put('/api/update-profile', async (req, res) => {
 
         // Frissítjük a users táblában a nevet és emailt
         await connection.query('UPDATE users SET full_name = ?, email = ? WHERE id = ?', [fullName, email, userId]);
-        // Frissítjük a kérdőív táblában a magasságot, súlyt, születési dátumot
+        // Frissítjük a kérdőív táblában a magasságot és a születési dátumot,
+        // a kezdeti testsúlyt nem írjuk felül, hogy a grafikon első pontja megmaradjon.
         await connection.query(
-            `UPDATE user_questionnaires SET height_cm = ?, weight_kg = ?, birth_date = ? WHERE user_id = ?`,
-            [height, weight, birthDate, userId]
+            `UPDATE user_questionnaires SET height_cm = ?, birth_date = ? WHERE user_id = ?`,
+            [height, birthDate, userId]
         );
         await connection.commit();
         res.json({ success: true, message: 'Profil frissítve!' });

@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import './questionnaire.css';
 import FeedbackModal from '../components/FeedbackModal';
 
+const MIN_REALISTIC_WEIGHT_KG = 30;
+const MAX_REALISTIC_WEIGHT_KG = 200;
+
 const Questionnaire = ({ navigateTo, setIsLoggedIn }) => {
   const [currentSection, setCurrentSection] = useState(1);
   const totalSections = 8;
@@ -303,6 +306,21 @@ const Questionnaire = ({ navigateTo, setIsLoggedIn }) => {
         message: 'Kérjük, töltsd ki az összes kötelező mezőt, mielőtt továbblépsz.',
         confirmLabel: 'Rendben'
       });
+    }
+
+    if (section === 1) {
+      const weightValue = parseFloat((formData.personalInfo.weight || '').toString().replace(',', '.'));
+      if (!Number.isFinite(weightValue) || weightValue < MIN_REALISTIC_WEIGHT_KG || weightValue > MAX_REALISTIC_WEIGHT_KG) {
+        sectionErrors.weight = `A testsúlynak ${MIN_REALISTIC_WEIGHT_KG} és ${MAX_REALISTIC_WEIGHT_KG} kg között kell lennie.`;
+        setModalConfig({
+          type: 'warning',
+          title: 'Hibás testsúly',
+          message: `Adj meg egy valós testsúlyt ${MIN_REALISTIC_WEIGHT_KG} és ${MAX_REALISTIC_WEIGHT_KG} kg között.`,
+          confirmLabel: 'Rendben'
+        });
+        setErrors(sectionErrors);
+        return false;
+      }
     }
 
     setErrors(sectionErrors);

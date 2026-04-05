@@ -9,6 +9,11 @@ import './dashboard.css';
 
 ChartJS.register(CategoryScale, LinearScale, RadialLinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
 
+const MIN_REALISTIC_WEIGHT_KG = 30;
+const MAX_REALISTIC_WEIGHT_KG = 200;
+const WEIGHT_CHART_PADDING_KG = 20;
+const WEIGHT_CHART_STEP_KG = 5;
+
 const formatLocalDate = (dateInput) => {
   const date = dateInput instanceof Date ? new Date(dateInput) : new Date(dateInput);
   if (Number.isNaN(date.getTime())) return '';
@@ -171,6 +176,23 @@ const safeFitBounds = (map, bounds, fallbackToHungary = true) => {
 const getAuthHeaders = (token) => (token ? { Authorization: `Bearer ${token}` } : {});
 
 const getProfileImageStorageKey = (userId) => `powerplan_profile_image_${userId}`;
+
+const preventNumberInputWheel = (event) => {
+  event.preventDefault();
+  event.currentTarget.blur();
+};
+
+const getWeightAxisBounds = (weightValues, startingWeight) => {
+  const numericWeights = weightValues.filter((value) => Number.isFinite(value));
+  const fallbackWeight = Number.isFinite(startingWeight) ? Math.round(startingWeight) : 80;
+  const minWeight = Math.min(...numericWeights, fallbackWeight - WEIGHT_CHART_PADDING_KG);
+  const maxWeight = Math.max(...numericWeights, fallbackWeight + WEIGHT_CHART_PADDING_KG);
+
+  return {
+    min: Math.max(0, Math.floor(minWeight / WEIGHT_CHART_STEP_KG) * WEIGHT_CHART_STEP_KG),
+    max: Math.ceil(maxWeight / WEIGHT_CHART_STEP_KG) * WEIGHT_CHART_STEP_KG
+  };
+};
 
 const getMarkerPosition = (gym, duplicateIndex) => {
   const angle = (duplicateIndex % 6) * (Math.PI / 3);
@@ -803,6 +825,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     weight: '',
     birthDate: ''
   });
+  const [startingWeight, setStartingWeight] = useState('');
   const [isProfileSaved, setIsProfileSaved] = useState(false);
   const [passwordFormData, setPasswordFormData] = useState({
     currentPassword: '',
@@ -888,13 +911,20 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const hydrateProfileFromQuestionnaire = (questionnaire) => {
     if (!questionnaire) return;
 
+    const resolvedStartingWeight = questionnaire.personalInfo?.startingWeight
+      ?? questionnaire.personalInfo?.weight
+      ?? '';
+
+    setStartingWeight((previousValue) => previousValue || resolvedStartingWeight);
+
     setUserData((prev) => ({
       ...prev,
       ...questionnaire,
       email: questionnaire.email || prev.email || '',
       personalInfo: {
         ...prev.personalInfo,
-        ...questionnaire.personalInfo
+        ...questionnaire.personalInfo,
+        startingWeight: prev.personalInfo?.startingWeight || resolvedStartingWeight
       },
       goals: {
         ...prev.goals,
@@ -1774,6 +1804,11 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
       const formattedWeight = normalizeNumberInput(editFormData.weight);
       const formattedBirthDate = formatDateForInput(editFormData.birthDate);
 
+      if (!Number.isFinite(formattedWeight) || formattedWeight < MIN_REALISTIC_WEIGHT_KG || formattedWeight > MAX_REALISTIC_WEIGHT_KG) {
+        showToast(`A testsúlynak ${MIN_REALISTIC_WEIGHT_KG} és ${MAX_REALISTIC_WEIGHT_KG} kg között kell lennie.`, 'warning');
+        return;
+      }
+
       const response = await fetch('http://localhost:5001/api/update-profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -1816,6 +1851,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
             lastName: editFormData.fullName.split(' ')[0] || '',
             height: editFormData.height,
             weight: editFormData.weight,
+            startingWeight: savedQuestionnaire.personalInfo?.startingWeight ?? savedQuestionnaire.personalInfo?.weight ?? '',
             birthDate: editFormData.birthDate
           }
         };
@@ -2390,16 +2426,39 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     else if (navigateTo) navigateTo('home');
   };
 
-  const userWeight = userData.personalInfo?.weight ? parseFloat(userData.personalInfo.weight) : 0;
+  const initialQuestionnaireWeight = startingWeight ? parseFloat(startingWeight) : 0;
   const weightHistoryData = weightHistory.length > 0 ? weightHistory : [];
-  const weightChartLabels = weightHistoryData.length > 0
-    ? weightHistoryData.map(item => new Date(item.date).toLocaleDateString('hu-HU'))
-    : ['Indulás', '1 hete', 'Ma'];
-  const weightChartValues = weightHistoryData.length > 0
-    ? weightHistoryData.map(item => parseFloat(item.weight))
-    : userWeight
-      ? [userWeight + 1, userWeight + 0.5, userWeight]
-      : [80, 79, 78];
+  const sanitizedWeightHistory = weightHistoryData
+    .map((item) => ({
+      dateKey: formatLocalDate(item.date),
+      timestamp: new Date(item.date).getTime(),
+      label: new Date(item.date).toLocaleDateString('hu-HU'),
+      value: parseFloat(item.weight)
+    }))
+    .filter((item) => Number.isFinite(item.value) && Number.isFinite(item.timestamp))
+    .sort((left, right) => left.timestamp - right.timestamp);
+
+  const historicalWeightEntries = [...sanitizedWeightHistory];
+  if (
+    historicalWeightEntries.length > 0 &&
+    Number.isFinite(initialQuestionnaireWeight) &&
+    historicalWeightEntries[0].value === initialQuestionnaireWeight
+  ) {
+    historicalWeightEntries.shift();
+  }
+
+  const weightChartEntries = [
+    ...(Number.isFinite(initialQuestionnaireWeight) && initialQuestionnaireWeight > 0
+      ? [{ label: 'Indulás', value: initialQuestionnaireWeight }]
+      : []),
+    ...historicalWeightEntries.map((item) => ({ label: item.label, value: item.value }))
+  ];
+  const chartStartingWeight = Number.isFinite(initialQuestionnaireWeight) && initialQuestionnaireWeight > 0
+    ? initialQuestionnaireWeight
+    : historicalWeightEntries[0]?.value;
+  const weightChartLabels = weightChartEntries.map((item) => item.label);
+  const weightChartValues = weightChartEntries.map((item) => item.value);
+  const weightAxisBounds = getWeightAxisBounds(weightChartValues, chartStartingWeight || initialQuestionnaireWeight);
 
   const weightChartData = {
     labels: weightChartLabels,
@@ -2441,6 +2500,20 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         ticks: {
           precision: 0,
           stepSize: 1
+        }
+      }
+    }
+  };
+
+  const weightChartOptions = {
+    ...chartOptions,
+    scales: {
+      y: {
+        beginAtZero: false,
+        min: weightAxisBounds.min,
+        max: weightAxisBounds.max,
+        ticks: {
+          stepSize: WEIGHT_CHART_STEP_KG
         }
       }
     }
@@ -2671,7 +2744,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
             </div>
           </div>
           <div className="charts-grid">
-            <div className="chart-container"><h3>Súlyfejlődés</h3><Line data={weightChartData} options={chartOptions} /></div>
+            <div className="chart-container"><h3>Súlyfejlődés</h3><Line data={weightChartData} options={weightChartOptions} /></div>
             <div className="chart-container"><h3>Edzési gyakoriság</h3><Bar data={workoutChartData} options={workoutChartOptions} /></div>
           </div>
         </div>
@@ -2780,7 +2853,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
             <div className="charts-grid">
               <div className="chart-container">
                 <h3>Testsúly alakulása</h3>
-                <Line data={weightChartData} options={chartOptions} />
+                <Line data={weightChartData} options={weightChartOptions} />
               </div>
             </div>
           </div>
@@ -3407,12 +3480,12 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                 </div>
                 <div className="form-group">
                   <label>Magasság (cm)</label>
-                  <input type="number" className="form-control" value={editFormData.height} 
+                  <input type="number" className="form-control" min="100" max="250" onWheel={preventNumberInputWheel} value={editFormData.height} 
                     onChange={(e) => handleProfileFieldChange('height', e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label>Súly (kg)</label>
-                  <input type="number" className="form-control" value={editFormData.weight} 
+                  <input type="number" className="form-control" min={MIN_REALISTIC_WEIGHT_KG} max={MAX_REALISTIC_WEIGHT_KG} step="0.1" onWheel={preventNumberInputWheel} value={editFormData.weight} 
                     onChange={(e) => handleProfileFieldChange('weight', e.target.value)} />
                 </div>
                 <div className="form-group">
@@ -3845,11 +3918,11 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                   <div className="sets-container">
                     {exercise.sets.map((set, setIndex) => (
                       <div key={setIndex} className="set-row">
-                        <input type="number" placeholder="Súly (kg)" value={set.weight} 
+                        <input type="number" placeholder="Súly (kg)" value={set.weight} onWheel={preventNumberInputWheel}
                           onChange={(e) => handleSetChange(exercise.id, setIndex, 'weight', e.target.value)} required />
-                        <input type="number" placeholder="Ismétlés" value={set.reps} 
+                        <input type="number" placeholder="Ismétlés" value={set.reps} onWheel={preventNumberInputWheel}
                           onChange={(e) => handleSetChange(exercise.id, setIndex, 'reps', e.target.value)} required />
-                        <input type="number" placeholder="RPE (1-10)" min="1" max="10" value={set.rpe} 
+                        <input type="number" placeholder="RPE (1-10)" min="1" max="10" value={set.rpe} onWheel={preventNumberInputWheel}
                           onChange={(e) => handleSetChange(exercise.id, setIndex, 'rpe', e.target.value)} />
                         {exercise.sets.length > 1 && (
                           <button type="button" className="btn-icon" onClick={() => handleRemoveSet(exercise.id, setIndex)}>
