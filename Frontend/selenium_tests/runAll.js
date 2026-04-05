@@ -3,6 +3,7 @@ import process from 'node:process';
 
 import { buildDriver, config } from './helpers.js';
 import { runSuite as runAuthSuite, suiteName as authSuiteName } from './auth.test.js';
+import { runSuite as runDashboardSuite, suiteName as dashboardSuiteName } from './dashboard.test.js';
 import { runSuite as runNavSuite, suiteName as navSuiteName } from './nav.test.js';
 import { runSuite as runWorkoutsSuite, suiteName as workoutsSuiteName } from './workouts.test.js';
 import { runSuite as runNutritionSuite, suiteName as nutritionSuiteName } from './nutrition.test.js';
@@ -10,6 +11,7 @@ import { runSuite as runMessagesSuite, suiteName as messagesSuiteName } from './
 
 const suites = [
   { name: authSuiteName, runSuite: runAuthSuite },
+  { name: dashboardSuiteName, runSuite: runDashboardSuite },
   { name: navSuiteName, runSuite: runNavSuite },
   { name: workoutsSuiteName, runSuite: runWorkoutsSuite },
   { name: nutritionSuiteName, runSuite: runNutritionSuite },
