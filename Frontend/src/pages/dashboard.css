@@ -1714,11 +1714,41 @@ body.dark-mode .theme-toggle-btn:hover {
   gap: 18px;
 }
 
+.admin-panel.hidden .admin-grid {
+  display: none;
+}
+
 .admin-panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.admin-panel-tab {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  padding: 16px 18px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.admin-panel-tab:hover {
+  border-color: rgba(230, 57, 70, 0.35);
+  transform: translateY(-1px);
+}
+
+.admin-panel-tab.active {
+  border-color: rgba(230, 57, 70, 0.5);
+  background: rgba(230, 57, 70, 0.08);
+}
+
+.admin-panel-tab h3 {
+  margin: 0;
+  text-align: left;
 }
 
 .admin-panel-header span {
@@ -1737,6 +1767,46 @@ body.dark-mode .theme-toggle-btn:hover {
 .admin-grid {
   display: grid;
   gap: 16px;
+}
+
+.admin-message-tabs {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.user-message-tabs {
+  margin-bottom: 4px;
+}
+
+.admin-message-tab {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 10px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.admin-message-tab span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(230, 57, 70, 0.12);
+  color: var(--primary);
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+
+.admin-message-tab.active {
+  border-color: rgba(230, 57, 70, 0.45);
+  background: rgba(230, 57, 70, 0.08);
 }
 
 .admin-message-card,
@@ -1788,6 +1858,25 @@ body.dark-mode .theme-toggle-btn:hover {
   color: var(--gray);
 }
 
+.admin-user-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-delete-btn {
+  background: rgba(230, 57, 70, 0.14);
+  color: var(--primary);
+  border-color: rgba(230, 57, 70, 0.28);
+}
+
+.admin-delete-btn:hover {
+  background: rgba(230, 57, 70, 0.24);
+  color: white;
+  border-color: transparent;
+}
+
 .admin-status-pill {
   padding: 6px 10px;
   border-radius: 999px;
@@ -1805,6 +1894,10 @@ body.dark-mode .theme-toggle-btn:hover {
 
 .admin-form-grid {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.admin-message-compose {
+  grid-column: 1 / -1;
 }
 
 .admin-role-toggle {
@@ -1827,6 +1920,75 @@ body.dark-mode .admin-user-card {
 
 body.dark-mode .admin-panel-header span {
   background: rgba(230, 57, 70, 0.18);
+}
+
+.messages-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 24px;
+}
+
+.messages-compose-card,
+.messages-list-card {
+  background: var(--light);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 20px;
+}
+
+.section-header.compact {
+  margin-bottom: 12px;
+}
+
+.section-header.compact h3 {
+  margin: 0;
+}
+
+.user-message-thread {
+  gap: 12px;
+}
+
+.message-bubble {
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.message-bubble strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.message-bubble p {
+  margin: 0;
+}
+
+.user-message-bubble {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.admin-message-bubble {
+  background: rgba(42, 157, 143, 0.12);
+  border: 1px solid rgba(42, 157, 143, 0.18);
+}
+
+.admin-message-bubble small {
+  color: var(--gray);
+}
+
+.admin-sent-bubble {
+  background: rgba(230, 57, 70, 0.08);
+  border: 1px solid rgba(230, 57, 70, 0.18);
+}
+
+.user-message-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 1100px) {
+  .messages-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 .food-search-wrap {

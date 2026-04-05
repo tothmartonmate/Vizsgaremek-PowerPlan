@@ -124,6 +124,7 @@ function App() {
 
   const handleContactSubmit = async (e) => {
     e.preventDefault();
+    const formElement = e.currentTarget;
 
     const formData = new FormData(e.currentTarget);
     const savedUser = localStorage.getItem('powerplan_current_user');
@@ -165,7 +166,7 @@ function App() {
         message: 'Köszönjük az üzenetedet! Hamarosan válaszolunk.',
         confirmLabel: 'Rendben'
       });
-      e.currentTarget.reset();
+      formElement?.reset();
     } catch (error) {
       console.error('Kapcsolat űrlap hiba:', error);
       setContactModalConfig({

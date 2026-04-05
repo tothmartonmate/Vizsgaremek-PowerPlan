@@ -418,6 +418,7 @@ const ensureAdminSchema = async () => {
                 subject VARCHAR(150) NOT NULL,
                 message TEXT NOT NULL,
                 admin_reply TEXT NULL,
+                origin ENUM('user', 'admin') NOT NULL DEFAULT 'user',
                 status ENUM('new', 'replied') NOT NULL DEFAULT 'new',
                 created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
                 replied_at TIMESTAMP NULL DEFAULT NULL,
@@ -426,6 +427,15 @@ const ensureAdminSchema = async () => {
                 CONSTRAINT fk_contact_messages_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
         `);
+
+        const [contactOriginColumn] = await pool.query("SHOW COLUMNS FROM contact_messages LIKE 'origin'");
+
+        if (contactOriginColumn.length === 0) {
+            await pool.query(`
+                ALTER TABLE contact_messages
+                ADD COLUMN origin ENUM('user', 'admin') NOT NULL DEFAULT 'user' AFTER admin_reply
+            `);
+        }
     } catch (error) {
         console.error('❌ Hiba az admin séma előkészítésekor:', error.message);
     }
@@ -1165,8 +1175,8 @@ app.post('/api/contact', async (req, res) => {
 
     try {
         await pool.query(
-            `INSERT INTO contact_messages (user_id, name, email, subject, message)
-             VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO contact_messages (user_id, name, email, subject, message, origin)
+             VALUES (?, ?, ?, ?, ?, 'user')`,
             [userId || null, String(name).trim(), String(email).trim(), String(subject).trim(), String(message).trim()]
         );
 
@@ -1177,6 +1187,96 @@ app.post('/api/contact', async (req, res) => {
     }
 });
 
+app.get('/api/messages/:userId', async (req, res) => {
+    const userId = Number(req.params.userId);
+
+    if (!userId) {
+        return res.status(400).json({ error: 'Érvénytelen felhasználó azonosító!' });
+    }
+
+    try {
+        const [messages] = await pool.query(
+            `SELECT id, user_id as userId, name, email, subject, message, admin_reply as adminReply,
+                    origin, status, created_at as createdAt, replied_at as repliedAt
+             FROM contact_messages
+             WHERE user_id = ?
+             ORDER BY created_at DESC`,
+            [userId]
+        );
+
+        return res.json({ success: true, messages });
+    } catch (error) {
+        console.error('Hiba felhasználói üzenetek lekérésekor:', error);
+        return res.status(500).json({ error: 'Szerverhiba történt!' });
+    }
+});
+
+app.post('/api/messages', async (req, res) => {
+    const userId = Number(req.body.userId);
+    const subject = String(req.body.subject || '').trim();
+    const message = String(req.body.message || '').trim();
+
+    if (!userId || !subject || !message) {
+        return res.status(400).json({ error: 'A tárgy, az üzenet és a felhasználó kötelező!' });
+    }
+
+    try {
+        const [users] = await pool.query('SELECT full_name as fullName, email FROM users WHERE id = ? LIMIT 1', [userId]);
+        if (users.length === 0) {
+            return res.status(404).json({ error: 'A felhasználó nem található!' });
+        }
+
+        const user = users[0];
+
+        await pool.query(
+            `INSERT INTO contact_messages (user_id, name, email, subject, message, origin)
+             VALUES (?, ?, ?, ?, ?, 'user')`,
+            [userId, String(user.fullName || '').trim(), String(user.email || '').trim(), subject, message]
+        );
+
+        return res.status(201).json({ success: true, message: 'Üzenet elküldve!' });
+    } catch (error) {
+        console.error('Hiba felhasználói üzenet mentésekor:', error);
+        return res.status(500).json({ error: 'Szerverhiba történt!' });
+    }
+});
+
+const handleDeleteUserMessage = async (req, res) => {
+    const userId = Number(req.body?.userId || req.query.userId);
+    const messageId = Number(req.params.messageId);
+
+    if (!userId || !messageId) {
+        return res.status(400).json({ error: 'Érvénytelen felhasználó vagy üzenet azonosító!' });
+    }
+
+    try {
+        const [messages] = await pool.query(
+            `SELECT id
+             FROM contact_messages
+             WHERE id = ? AND user_id = ? AND origin = 'user'
+             LIMIT 1`,
+            [messageId, userId]
+        );
+
+        if (messages.length === 0) {
+            return res.status(404).json({ error: 'Az üzenet nem található, vagy nem a saját elküldött üzeneted!' });
+        }
+
+        await pool.query(
+            `DELETE FROM contact_messages
+             WHERE id = ? AND user_id = ? AND origin = 'user'`,
+            [messageId, userId]
+        );
+        return res.json({ success: true, message: 'Üzenet törölve!' });
+    } catch (error) {
+        console.error('Hiba felhasználói üzenet törlésekor:', error);
+        return res.status(500).json({ error: 'Szerverhiba történt!' });
+    }
+};
+
+app.delete('/api/messages/:messageId', handleDeleteUserMessage);
+app.post('/api/messages/:messageId/delete', handleDeleteUserMessage);
+
 // -------------------- ADMIN ÁTTEKINTÉS --------------------
 app.get('/api/admin/overview/:userId', async (req, res) => {
     const adminUserId = Number(req.params.userId);
@@ -1185,7 +1285,7 @@ app.get('/api/admin/overview/:userId', async (req, res) => {
         if (!(await requireAdmin(adminUserId, res))) return;
 
         const [messages] = await pool.query(
-            `SELECT id, user_id as userId, name, email, subject, message, admin_reply as adminReply, status,
+            `SELECT id, user_id as userId, name, email, subject, message, admin_reply as adminReply, origin, status,
                     created_at as createdAt, replied_at as repliedAt
              FROM contact_messages
              ORDER BY created_at DESC`
@@ -1214,6 +1314,33 @@ app.get('/api/admin/overview/:userId', async (req, res) => {
     }
 });
 
+const handleDeleteAdminMessage = async (req, res) => {
+    const adminUserId = Number(req.body?.adminUserId || req.query.adminUserId);
+    const messageId = Number(req.params.messageId);
+
+    if (!messageId) {
+        return res.status(400).json({ error: 'Érvénytelen üzenet azonosító!' });
+    }
+
+    try {
+        if (!(await requireAdmin(adminUserId, res))) return;
+
+        const [messages] = await pool.query('SELECT id FROM contact_messages WHERE id = ? LIMIT 1', [messageId]);
+        if (messages.length === 0) {
+            return res.status(404).json({ error: 'Az üzenet nem található!' });
+        }
+
+        await pool.query('DELETE FROM contact_messages WHERE id = ?', [messageId]);
+        return res.json({ success: true, message: 'Üzenet törölve!' });
+    } catch (error) {
+        console.error('Hiba admin üzenet törlésekor:', error);
+        return res.status(500).json({ error: 'Szerverhiba történt!' });
+    }
+};
+
+app.delete('/api/admin/messages/:messageId', handleDeleteAdminMessage);
+app.post('/api/admin/messages/:messageId/delete', handleDeleteAdminMessage);
+
 app.put('/api/admin/messages/:messageId/reply', async (req, res) => {
     const adminUserId = Number(req.body.adminUserId);
     const messageId = Number(req.params.messageId);
@@ -1225,6 +1352,15 @@ app.put('/api/admin/messages/:messageId/reply', async (req, res) => {
 
     try {
         if (!(await requireAdmin(adminUserId, res))) return;
+
+        const [messages] = await pool.query(
+            'SELECT id FROM contact_messages WHERE id = ? LIMIT 1',
+            [messageId]
+        );
+
+        if (messages.length === 0) {
+            return res.status(404).json({ error: 'Az üzenet nem található!' });
+        }
 
         await pool.query(
             `UPDATE contact_messages
@@ -1240,10 +1376,47 @@ app.put('/api/admin/messages/:messageId/reply', async (req, res) => {
     }
 });
 
+app.post('/api/admin/users/:targetUserId/message', async (req, res) => {
+    const adminUserId = Number(req.body.adminUserId);
+    const targetUserId = Number(req.params.targetUserId);
+    const subject = String(req.body.subject || '').trim();
+    const adminMessage = String(req.body.message || '').trim();
+
+    if (!targetUserId || !subject || !adminMessage) {
+        return res.status(400).json({ error: 'A célfelhasználó, a tárgy és az üzenet kötelező!' });
+    }
+
+    try {
+        if (!(await requireAdmin(adminUserId, res))) return;
+
+        const [targetUsers] = await pool.query(
+            'SELECT full_name as fullName, email FROM users WHERE id = ? LIMIT 1',
+            [targetUserId]
+        );
+
+        if (targetUsers.length === 0) {
+            return res.status(404).json({ error: 'A felhasználó nem található!' });
+        }
+
+        const targetUser = targetUsers[0];
+
+        await pool.query(
+            `INSERT INTO contact_messages (user_id, name, email, subject, message, admin_reply, origin, status, replied_at)
+             VALUES (?, ?, ?, ?, '', ?, 'admin', 'replied', CURRENT_TIMESTAMP)`,
+            [targetUserId, String(targetUser.fullName || '').trim(), String(targetUser.email || '').trim(), subject, adminMessage]
+        );
+
+        return res.status(201).json({ success: true, message: 'Admin üzenet elküldve!' });
+    } catch (error) {
+        console.error('Hiba admin üzenet küldésekor:', error);
+        return res.status(500).json({ error: 'Szerverhiba történt!' });
+    }
+});
+
 app.put('/api/admin/users/:targetUserId', async (req, res) => {
     const adminUserId = Number(req.body.adminUserId);
     const targetUserId = Number(req.params.targetUserId);
-    const { fullName, email, fitnessGoal, totalPoints, currentLevel, role } = req.body;
+    const { fullName, email, fitnessGoal, role } = req.body;
 
     if (!targetUserId || !fullName || !email) {
         return res.status(400).json({ error: 'A név, email és azonosító kötelező!' });
@@ -1259,16 +1432,12 @@ app.put('/api/admin/users/:targetUserId', async (req, res) => {
              SET full_name = ?,
                  email = ?,
                  fitness_goal = ?,
-                 total_points = ?,
-                 current_level = ?,
                  role = ?
              WHERE id = ?`,
             [
                 String(fullName).trim(),
                 String(email).trim(),
                 fitnessGoal || null,
-                Number.isFinite(Number(totalPoints)) ? Number(totalPoints) : 0,
-                Number.isFinite(Number(currentLevel)) ? Number(currentLevel) : 1,
                 normalizedRole,
                 targetUserId
             ]
@@ -1277,6 +1446,34 @@ app.put('/api/admin/users/:targetUserId', async (req, res) => {
         return res.json({ success: true, message: 'Felhasználó frissítve!' });
     } catch (error) {
         console.error('Hiba admin felhasználó frissítéskor:', error);
+        return res.status(500).json({ error: 'Szerverhiba történt!' });
+    }
+});
+
+app.delete('/api/admin/users/:targetUserId', async (req, res) => {
+    const adminUserId = Number(req.body.adminUserId || req.query.adminUserId);
+    const targetUserId = Number(req.params.targetUserId);
+
+    if (!targetUserId) {
+        return res.status(400).json({ error: 'Érvénytelen felhasználó azonosító!' });
+    }
+
+    try {
+        if (!(await requireAdmin(adminUserId, res))) return;
+
+        const [targetUsers] = await pool.query('SELECT role FROM users WHERE id = ? LIMIT 1', [targetUserId]);
+        if (targetUsers.length === 0) {
+            return res.status(404).json({ error: 'A felhasználó nem található!' });
+        }
+
+        if (normalizeUserRole(targetUsers[0].role) === 'admin') {
+            return res.status(403).json({ error: 'Admin felhasználó nem törölhető!' });
+        }
+
+        await pool.query('DELETE FROM users WHERE id = ?', [targetUserId]);
+        return res.json({ success: true, message: 'Felhasználó törölve!' });
+    } catch (error) {
+        console.error('Hiba admin felhasználó törlésekor:', error);
         return res.status(500).json({ error: 'Szerverhiba történt!' });
     }
 });

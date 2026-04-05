@@ -788,9 +788,24 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminMessages, setAdminMessages] = useState([]);
   const [adminLoading, setAdminLoading] = useState(false);
+  const [adminActivePanel, setAdminActivePanel] = useState('messages');
+  const [adminMessageTab, setAdminMessageTab] = useState('incoming');
+  const [savedAdminUserIds, setSavedAdminUserIds] = useState({});
+  const [deletingAdminUserId, setDeletingAdminUserId] = useState(null);
+  const [deletingAdminMessageId, setDeletingAdminMessageId] = useState(null);
+  const [userMessages, setUserMessages] = useState([]);
+  const [userMessagesLoading, setUserMessagesLoading] = useState(false);
+  const [sendingUserMessage, setSendingUserMessage] = useState(false);
+  const [deletingUserMessageId, setDeletingUserMessageId] = useState(null);
+  const [userMessageTab, setUserMessageTab] = useState('incoming');
+  const [userMessageForm, setUserMessageForm] = useState({ subject: '', message: '' });
 
   const getUserRole = (user) => (String(user?.role || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user');
   const hasAdminAccess = (user) => getUserRole(user) === 'admin' || Boolean(user?.is_admin);
+  const incomingAdminMessages = adminMessages.filter((message) => message.origin !== 'admin');
+  const sentAdminMessages = adminMessages.filter((message) => message.origin === 'admin');
+  const incomingUserMessages = userMessages.filter((message) => message.origin === 'admin' || Boolean(message.adminReply));
+  const sentUserMessages = userMessages.filter((message) => message.origin !== 'admin');
   
   const [userData, setUserData] = useState({});
   const [workoutData, setWorkoutData] = useState({ weeklyPlan: [], stats: {}, aiRecommendation: '', recommendedPlan: [], recommendationNote: '' });
@@ -902,6 +917,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         loadNutritionWeek(new Date());
         loadProfileImage(currentUser.id, token);
         loadProgressPhotos(currentUser.id, token);
+        loadUserMessages(currentUser.id, token);
         if (hasAdminAccess(currentUser)) {
           loadAdminData(currentUser.id, token);
         }
@@ -1087,7 +1103,33 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     }
   };
 
+  const loadUserMessages = async (userId, token) => {
+    setUserMessagesLoading(true);
+    try {
+      const response = await fetch(`http://localhost:5001/api/messages/${userId}`, {
+        headers: getAuthHeaders(token)
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setUserMessages(data.messages || []);
+      } else {
+        showToast('Nem sikerült betölteni az üzeneteidet.', 'error');
+      }
+    } catch (error) {
+      console.error('Felhasználói üzenetek betöltési hiba:', error);
+      showToast('Hálózati hiba az üzenetek betöltésekor.', 'error');
+    } finally {
+      setUserMessagesLoading(false);
+    }
+  };
+
   const handleAdminUserFieldChange = (userId, field, value) => {
+    setSavedAdminUserIds((prev) => {
+      const next = { ...prev };
+      delete next[userId];
+      return next;
+    });
     setAdminUsers((prev) => prev.map((user) => (
       user.id === userId ? { ...user, [field]: value } : user
     )));
@@ -1118,8 +1160,6 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
           fullName: selectedUser.fullName,
           email: selectedUser.email,
           fitnessGoal: selectedUser.fitnessGoal,
-          totalPoints: selectedUser.totalPoints,
-          currentLevel: selectedUser.currentLevel,
           role: selectedUser.role
         })
       });
@@ -1142,10 +1182,46 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         setIsAdmin(selectedUser.role === 'admin');
       }
 
+      setSavedAdminUserIds((prev) => ({ ...prev, [targetUserId]: true }));
       showToast('Felhasználó adatai elmentve.', 'success');
     } catch (error) {
       console.error('Admin user mentési hiba:', error);
       showToast('Hálózati hiba a felhasználó mentésekor.', 'error');
+    }
+  };
+
+  const deleteAdminUser = async (targetUserId) => {
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+    const selectedUser = adminUsers.find((user) => user.id === targetUserId);
+
+    if (!currentUser.id || !selectedUser) return;
+    if ((selectedUser.role || 'user') === 'admin') {
+      showToast('Admin felhasználó nem törölhető.', 'warning');
+      return;
+    }
+
+    setDeletingAdminUserId(targetUserId);
+
+    try {
+      const response = await fetch(`http://localhost:5001/api/admin/users/${targetUserId}?adminUserId=${currentUser.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(token)
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        showToast(data.error || 'Nem sikerült törölni a felhasználót.', 'error');
+        return;
+      }
+
+      setAdminUsers((prev) => prev.filter((user) => user.id !== targetUserId));
+      showToast('Felhasználó törölve.', 'success');
+    } catch (error) {
+      console.error('Admin user törlési hiba:', error);
+      showToast('Hálózati hiba a felhasználó törlésekor.', 'error');
+    } finally {
+      setDeletingAdminUserId(null);
     }
   };
 
@@ -1187,6 +1263,182 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     } catch (error) {
       console.error('Admin reply mentési hiba:', error);
       showToast('Hálózati hiba a válasz mentésekor.', 'error');
+    }
+  };
+
+  const sendAdminDirectMessage = async (targetUserId) => {
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+    const selectedUser = adminUsers.find((user) => user.id === targetUserId);
+    const subject = String(selectedUser?.adminMessageSubject || '').trim();
+    const message = String(selectedUser?.adminMessageDraft || '').trim();
+
+    if (!currentUser.id || !selectedUser) return;
+
+    if (!subject || !message) {
+      showToast('Az admin üzenethez tárgy és szöveg is szükséges.', 'warning');
+      return;
+    }
+
+    try {
+      const response = await fetch(`http://localhost:5001/api/admin/users/${targetUserId}/message`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(token)
+        },
+        body: JSON.stringify({
+          adminUserId: currentUser.id,
+          subject,
+          message
+        })
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        showToast(data.error || 'Nem sikerült elküldeni az admin üzenetet.', 'error');
+        return;
+      }
+
+      setAdminUsers((prev) => prev.map((user) => (
+        user.id === targetUserId
+          ? { ...user, adminMessageSubject: '', adminMessageDraft: '' }
+          : user
+      )));
+      setAdminActivePanel('messages');
+      setAdminMessageTab('sent');
+      showToast('Admin üzenet elküldve.', 'success');
+      loadAdminData(currentUser.id, token);
+    } catch (error) {
+      console.error('Admin direct message hiba:', error);
+      showToast('Hálózati hiba az admin üzenet küldésekor.', 'error');
+    }
+  };
+
+  const sendUserMessage = async () => {
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+    const subject = String(userMessageForm.subject || '').trim();
+    const message = String(userMessageForm.message || '').trim();
+
+    if (!currentUser.id || currentUser.id === 'demo-999') {
+      showToast('Demó módban az üzenetküldés nem elérhető.', 'error');
+      return;
+    }
+
+    if (!subject || !message) {
+      showToast('A tárgy és az üzenet megadása kötelező.', 'warning');
+      return;
+    }
+
+    setSendingUserMessage(true);
+
+    try {
+      const response = await fetch('http://localhost:5001/api/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(token)
+        },
+        body: JSON.stringify({
+          userId: currentUser.id,
+          subject,
+          message
+        })
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        showToast(data.error || 'Nem sikerült elküldeni az üzenetet.', 'error');
+        return;
+      }
+
+      setUserMessageForm({ subject: '', message: '' });
+      showToast('Üzenet elküldve az adminnak.', 'success');
+      loadUserMessages(currentUser.id, token);
+      if (hasAdminAccess(currentUser)) {
+        loadAdminData(currentUser.id, token);
+      }
+    } catch (error) {
+      console.error('Felhasználói üzenetküldési hiba:', error);
+      showToast('Hálózati hiba az üzenetküldéskor.', 'error');
+    } finally {
+      setSendingUserMessage(false);
+    }
+  };
+
+  const deleteAdminMessage = async (messageId) => {
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+
+    if (!currentUser.id) return;
+
+    setDeletingAdminMessageId(messageId);
+
+    try {
+      const response = await fetch(`http://localhost:5001/api/admin/messages/${messageId}/delete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(token)
+        },
+        body: JSON.stringify({ adminUserId: currentUser.id })
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        showToast(data.error || 'Nem sikerült törölni az üzenetet.', 'error');
+        return;
+      }
+
+      setAdminMessages((prev) => prev.filter((message) => message.id !== messageId));
+      setUserMessages((prev) => prev.filter((message) => message.id !== messageId));
+      showToast('Üzenet törölve.', 'success');
+    } catch (error) {
+      console.error('Admin üzenet törlési hiba:', error);
+      showToast('Hálózati hiba az üzenet törlésekor.', 'error');
+    } finally {
+      setDeletingAdminMessageId(null);
+    }
+  };
+
+  const deleteUserMessage = async (messageId) => {
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+
+    if (!currentUser.id || currentUser.id === 'demo-999') {
+      showToast('Demó módban az üzenettörlés nem elérhető.', 'error');
+      return;
+    }
+
+    setDeletingUserMessageId(messageId);
+
+    try {
+      const response = await fetch(`http://localhost:5001/api/messages/${messageId}/delete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(token)
+        },
+        body: JSON.stringify({ userId: currentUser.id })
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        showToast(data.error || 'Nem sikerült törölni az üzenetet.', 'error');
+        return;
+      }
+
+      setUserMessages((prev) => prev.filter((message) => message.id !== messageId));
+      if (hasAdminAccess(currentUser)) {
+        setAdminMessages((prev) => prev.filter((message) => message.id !== messageId));
+      }
+      showToast('Üzenet törölve.', 'success');
+    } catch (error) {
+      console.error('Felhasználói üzenet törlési hiba:', error);
+      showToast('Hálózati hiba az üzenet törlésekor.', 'error');
+    } finally {
+      setDeletingUserMessageId(null);
     }
   };
 
@@ -1910,6 +2162,14 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         loadProfileImage(currentUser.id, token);
       }
     }
+    if (section === 'messages') {
+      const token = localStorage.getItem('powerplan_token');
+      const savedUser = localStorage.getItem('powerplan_current_user');
+      const currentUser = savedUser ? JSON.parse(savedUser) : null;
+      if (currentUser && currentUser.id && token && currentUser.id !== 'demo-999') {
+        loadUserMessages(currentUser.id, token);
+      }
+    }
   };
   
   const updateDateTime = () => {
@@ -2191,6 +2451,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     'gyms': { icon: 'fa-map-marker-alt', text: 'Edzőtermek', subtitle: 'Közeli termek' },
     'exercises': { icon: 'fa-video', text: 'Gyakorlatok', subtitle: 'Oktatóvideók' },
     'badges': { icon: 'fa-trophy', text: 'Jelvények' },
+    'messages': { icon: 'fa-envelope', text: 'Üzeneteim', subtitle: 'Admin válaszok és üzenetküldés' },
     'profile': { icon: 'fa-user-circle', text: 'Profil', subtitle: 'Személyes adatok' }
   };
 
@@ -2717,13 +2978,35 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
               <div className="loading-spinner"><i className="fas fa-spinner fa-spin"></i> Admin adatok betöltése...</div>
             ) : (
               <div className="admin-layout">
-                <div className="admin-panel">
-                  <div className="admin-panel-header">
+                <div className={`admin-panel ${adminActivePanel === 'messages' ? 'active' : 'hidden'}`}>
+                  <button
+                    type="button"
+                    className={`admin-panel-header admin-panel-tab ${adminActivePanel === 'messages' ? 'active' : ''}`}
+                    onClick={() => setAdminActivePanel('messages')}
+                  >
                     <h3>Kapcsolati üzenetek</h3>
                     <span>{adminMessages.length} db</span>
-                  </div>
-                  <div className="admin-grid">
-                    {adminMessages.map((message) => (
+                  </button>
+                  <div className={`admin-grid ${adminActivePanel === 'messages' ? 'active' : ''}`}>
+                    <div className="admin-message-tabs">
+                      <button
+                        type="button"
+                        className={`admin-message-tab ${adminMessageTab === 'incoming' ? 'active' : ''}`}
+                        onClick={() => setAdminMessageTab('incoming')}
+                      >
+                        Beérkezett üzenetek
+                        <span>{incomingAdminMessages.length}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`admin-message-tab ${adminMessageTab === 'sent' ? 'active' : ''}`}
+                        onClick={() => setAdminMessageTab('sent')}
+                      >
+                        Elküldött üzenetek
+                        <span>{sentAdminMessages.length}</span>
+                      </button>
+                    </div>
+                    {(adminMessageTab === 'incoming' ? incomingAdminMessages : sentAdminMessages).map((message) => (
                       <div key={message.id} className="admin-message-card">
                         <div className="admin-card-top">
                           <div>
@@ -2732,31 +3015,56 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                           </div>
                           <span className={`admin-status-pill ${message.status}`}>{message.status === 'replied' ? 'Megválaszolva' : 'Új'}</span>
                         </div>
-                        <p className="admin-message-body">{message.message}</p>
-                        <textarea
-                          className="form-control admin-reply-box"
-                          placeholder="Admin válasz..."
-                          value={message.adminReply || ''}
-                          onChange={(e) => handleAdminMessageReplyChange(message.id, e.target.value)}
-                        />
+                        {message.origin === 'admin' ? (
+                          <div className="message-bubble admin-message-bubble admin-sent-bubble">
+                            <strong>Elküldött admin üzenet:</strong>
+                            <p className="admin-message-body">{message.adminReply || 'Nincs üzenetszöveg.'}</p>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="admin-message-body">{message.message}</p>
+                            <textarea
+                              className="form-control admin-reply-box"
+                              placeholder="Admin válasz..."
+                              value={message.adminReply || ''}
+                              onChange={(e) => handleAdminMessageReplyChange(message.id, e.target.value)}
+                            />
+                          </>
+                        )}
                         <div className="admin-card-actions">
                           <small>{new Date(message.createdAt).toLocaleString('hu-HU')}</small>
-                          <button className="btn btn-primary" onClick={() => saveAdminReply(message.id)}>
-                            <i className="fas fa-paper-plane"></i> Válasz mentése
-                          </button>
+                          <div className="admin-user-actions">
+                            {message.origin !== 'admin' && (
+                              <button className="btn btn-primary" onClick={() => saveAdminReply(message.id)}>
+                                <i className="fas fa-paper-plane"></i> Válasz mentése
+                              </button>
+                            )}
+                            <button className="btn btn-secondary admin-delete-btn" onClick={() => deleteAdminMessage(message.id)} disabled={deletingAdminMessageId === message.id}>
+                              <i className="fas fa-trash"></i> {deletingAdminMessageId === message.id ? 'Törlés...' : 'Üzenet törlése'}
+                            </button>
+                            <button className="btn btn-secondary" onClick={() => setAdminActivePanel(null)}>
+                              <i className="fas fa-xmark"></i> Bezárás
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}
-                    {adminMessages.length === 0 && <p className="no-data">Még nincs beérkezett üzenet.</p>}
+                    {(adminMessageTab === 'incoming' ? incomingAdminMessages.length === 0 : sentAdminMessages.length === 0) && (
+                      <p className="no-data">{adminMessageTab === 'incoming' ? 'Még nincs beérkezett üzenet.' : 'Még nincs elküldött admin üzenet.'}</p>
+                    )}
                   </div>
                 </div>
 
-                <div className="admin-panel">
-                  <div className="admin-panel-header">
+                <div className={`admin-panel ${adminActivePanel === 'users' ? 'active' : 'hidden'}`}>
+                  <button
+                    type="button"
+                    className={`admin-panel-header admin-panel-tab ${adminActivePanel === 'users' ? 'active' : ''}`}
+                    onClick={() => setAdminActivePanel('users')}
+                  >
                     <h3>Felhasználók kezelése</h3>
                     <span>{adminUsers.length} db</span>
-                  </div>
-                  <div className="admin-grid">
+                  </button>
+                  <div className={`admin-grid ${adminActivePanel === 'users' ? 'active' : ''}`}>
                     {adminUsers.map((user) => (
                       <div key={user.id} className="admin-user-card">
                         <div className="admin-card-top">
@@ -2789,20 +3097,30 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                             <label>Cél</label>
                             <input className="form-control" type="text" value={user.fitnessGoal || ''} onChange={(e) => handleAdminUserFieldChange(user.id, 'fitnessGoal', e.target.value)} />
                           </div>
-                          <div className="form-group">
-                            <label>Pontok</label>
-                            <input className="form-control" type="number" value={user.totalPoints ?? 0} onChange={(e) => handleAdminUserFieldChange(user.id, 'totalPoints', e.target.value)} />
+                          <div className="form-group admin-message-compose">
+                            <label>Admin üzenet tárgya</label>
+                            <input className="form-control" type="text" value={user.adminMessageSubject || ''} onChange={(e) => handleAdminUserFieldChange(user.id, 'adminMessageSubject', e.target.value)} placeholder="Pl. Fiókoddal kapcsolatban" />
                           </div>
-                          <div className="form-group">
-                            <label>Szint</label>
-                            <input className="form-control" type="number" value={user.currentLevel ?? 1} onChange={(e) => handleAdminUserFieldChange(user.id, 'currentLevel', e.target.value)} />
+                          <div className="form-group admin-message-compose">
+                            <label>Admin üzenet</label>
+                            <textarea className="form-control admin-reply-box" value={user.adminMessageDraft || ''} onChange={(e) => handleAdminUserFieldChange(user.id, 'adminMessageDraft', e.target.value)} placeholder="Írj közvetlen üzenetet a felhasználónak..." />
                           </div>
                         </div>
                         <div className="admin-card-actions">
                           <small>{new Date(user.createdAt).toLocaleDateString('hu-HU')}</small>
-                          <button className="btn btn-primary" onClick={() => saveAdminUser(user.id)}>
-                            <i className="fas fa-save"></i> Mentés
-                          </button>
+                          <div className="admin-user-actions">
+                            <button className="btn btn-secondary" onClick={() => sendAdminDirectMessage(user.id)}>
+                              <i className="fas fa-paper-plane"></i> Üzenet küldése
+                            </button>
+                            {user.role !== 'admin' && (
+                              <button className="btn btn-secondary admin-delete-btn" onClick={() => deleteAdminUser(user.id)} disabled={deletingAdminUserId === user.id}>
+                                <i className="fas fa-trash"></i> {deletingAdminUserId === user.id ? 'Törlés...' : 'Törlés'}
+                              </button>
+                            )}
+                            <button className={`btn ${savedAdminUserIds[user.id] ? 'btn-secondary saved' : 'btn-primary'}`} onClick={() => saveAdminUser(user.id)}>
+                              <i className="fas fa-save"></i> {savedAdminUserIds[user.id] ? 'Mentve' : 'Mentés'}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -2810,6 +3128,105 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                 </div>
               </div>
             )}
+          </div>
+        </div>
+
+        <div className={`content-section ${currentSection === 'messages' ? 'active' : ''}`}>
+          <div className="card">
+            <div className="section-header">
+              <h2><i className="fas fa-envelope"></i> Üzeneteim</h2>
+            </div>
+            <div className="messages-layout">
+              <div className="messages-compose-card">
+                <h3>Új üzenet az adminnak</h3>
+                <div className="form-group">
+                  <label>Tárgy</label>
+                  <input
+                    className="form-control"
+                    type="text"
+                    value={userMessageForm.subject}
+                    onChange={(e) => setUserMessageForm((prev) => ({ ...prev, subject: e.target.value }))}
+                    placeholder="Miről szeretnél írni?"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Üzenet</label>
+                  <textarea
+                    className="form-control admin-reply-box"
+                    value={userMessageForm.message}
+                    onChange={(e) => setUserMessageForm((prev) => ({ ...prev, message: e.target.value }))}
+                    placeholder="Írd meg az üzenetedet az adminnak..."
+                  />
+                </div>
+                <button className="btn btn-primary" onClick={sendUserMessage} disabled={sendingUserMessage}>
+                  <i className="fas fa-paper-plane"></i> {sendingUserMessage ? 'Küldés...' : 'Üzenet küldése'}
+                </button>
+              </div>
+
+              <div className="messages-list-card">
+                <div className="section-header compact">
+                  <h3>Üzenetek</h3>
+                </div>
+                {userMessagesLoading ? (
+                  <div className="loading-spinner"><i className="fas fa-spinner fa-spin"></i> Üzenetek betöltése...</div>
+                ) : (
+                  <div className="admin-grid">
+                    <div className="admin-message-tabs user-message-tabs">
+                      <button
+                        type="button"
+                        className={`admin-message-tab ${userMessageTab === 'incoming' ? 'active' : ''}`}
+                        onClick={() => setUserMessageTab('incoming')}
+                      >
+                        Beérkezett üzenetek
+                        <span>{incomingUserMessages.length}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`admin-message-tab ${userMessageTab === 'sent' ? 'active' : ''}`}
+                        onClick={() => setUserMessageTab('sent')}
+                      >
+                        Elküldött üzenetek
+                        <span>{sentUserMessages.length}</span>
+                      </button>
+                    </div>
+                    {(userMessageTab === 'incoming' ? incomingUserMessages : sentUserMessages).map((message) => (
+                      <div key={message.id} className="admin-message-card user-message-thread">
+                        <div className="admin-card-top">
+                          <div>
+                            <h4>{message.subject}</h4>
+                            <p className="admin-meta">Elküldve: {new Date(message.createdAt).toLocaleString('hu-HU')}</p>
+                          </div>
+                          <span className={`admin-status-pill ${message.status}`}>{message.status === 'replied' ? 'Megválaszolva' : 'Függőben'}</span>
+                        </div>
+                        {userMessageTab === 'sent' && message.origin !== 'admin' && (
+                          <div className="message-bubble user-message-bubble">
+                            <strong>Te:</strong>
+                            <p className="admin-message-body">{message.message}</p>
+                          </div>
+                        )}
+                        {message.adminReply && (
+                          <div className="message-bubble admin-message-bubble">
+                            <strong>Admin:</strong>
+                            <p className="admin-message-body">{message.adminReply}</p>
+                            {message.repliedAt && <small>{new Date(message.repliedAt).toLocaleString('hu-HU')}</small>}
+                          </div>
+                        )}
+                        {userMessageTab === 'sent' && message.origin !== 'admin' && (
+                          <div className="user-message-actions">
+                            <button className="btn btn-secondary admin-delete-btn" onClick={() => deleteUserMessage(message.id)} disabled={deletingUserMessageId === message.id}>
+                              <i className="fas fa-trash"></i> {deletingUserMessageId === message.id ? 'Törlés...' : 'Saját üzenet törlése'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {(userMessageTab === 'incoming' ? incomingUserMessages.length === 0 : sentUserMessages.length === 0) && (
+                      <p className="no-data">{userMessageTab === 'incoming' ? 'Még nincs beérkezett admin üzeneted.' : 'Még nincs elküldött üzeneted az admin felé.'}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
