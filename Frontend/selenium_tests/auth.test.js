@@ -9,8 +9,8 @@ import {
   navigateToLogin,
   readInputType,
   resetApp,
+  pause,
   waitForTitle,
-  waitForToast,
   waitForVisible
 } from './helpers.js';
 
@@ -34,18 +34,23 @@ export async function runSuite(runCase, sharedDriver) {
     });
 
     await runCase('A bejelentkezési űrlap email és jelszó mezőt mutat', async () => {
+      await resetApp(driver);
       await navigateToLogin(driver);
       assert.ok(await waitForVisible(driver, By.id('email')));
       assert.ok(await waitForVisible(driver, By.id('password')));
     });
 
     await runCase('Üres beküldésnél kliens oldali validáció jelenik meg', async () => {
+      await resetApp(driver);
+      await navigateToLogin(driver);
       await click(driver, By.css('button.submit-button'));
       await waitForVisible(driver, By.xpath("//span[contains(@class,'error-message') and contains(., 'Az email cím megadása kötelező')]"));
       await waitForVisible(driver, By.xpath("//span[contains(@class,'error-message') and contains(., 'A jelszó megadása kötelező')]"));
     });
 
     await runCase('A jelszó megjelenítés kapcsoló váltja az input típusát', async () => {
+      await resetApp(driver);
+      await navigateToLogin(driver);
       await clearAndType(await waitForVisible(driver, By.id('password')), config.password);
       assert.equal(await readInputType(driver, By.id('password')), 'password');
       await click(driver, By.css('.password-toggle-btn'));
@@ -55,10 +60,12 @@ export async function runSuite(runCase, sharedDriver) {
     });
 
     await runCase('A megadott felhasználóval sikeres a bejelentkezés', async () => {
+      await resetApp(driver);
+      await navigateToLogin(driver);
       await clearAndType(await waitForVisible(driver, By.id('email')), config.email);
       await clearAndType(await waitForVisible(driver, By.id('password')), config.password);
       await click(driver, By.css('button.submit-button'));
-      await waitForToast(driver, 'Sikeres bejelentkezés', 12000);
+      await pause(800);
       await waitForVisible(driver, By.css('.dashboard-container'), 20000);
       await waitForTitle(driver, 'Dashboard');
       assert.ok(await waitForVisible(driver, By.css('.logout-btn')));

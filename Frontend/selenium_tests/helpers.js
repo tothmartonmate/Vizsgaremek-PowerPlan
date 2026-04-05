@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
 import { Builder, Browser, By, until } from 'selenium-webdriver';
 import chrome from 'selenium-webdriver/chrome.js';
 import edge from 'selenium-webdriver/edge.js';
@@ -15,6 +17,48 @@ export const config = {
 };
 
 const DEFAULT_TIMEOUT = 15000;
+
+function applyCommonBrowserFlags(options) {
+  options.addArguments(
+    '--window-size=1440,1200',
+    '--log-level=3',
+    '--silent',
+    '--disable-gpu',
+    '--disable-dev-shm-usage',
+    '--no-sandbox',
+    '--disable-extensions',
+    '--disable-notifications',
+    '--disable-component-update',
+    '--disable-default-apps',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-background-networking',
+    '--disable-renderer-backgrounding',
+    '--disable-background-timer-throttling',
+    '--disable-features=CalculateNativeWinOcclusion,BackForwardCache,Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,NotificationTriggers',
+    '--disable-ipc-flooding-protection',
+    '--force-device-scale-factor=1'
+  );
+
+  if (typeof options.excludeSwitches === 'function') {
+    options.excludeSwitches('enable-logging');
+  }
+
+  if (typeof options.setUserPreferences === 'function') {
+    options.setUserPreferences({
+      credentials_enable_service: false,
+      profile: {
+        password_manager_enabled: false
+      }
+    });
+  }
+
+  if (config.headless) {
+    options.addArguments('--headless=new');
+  }
+
+  return options;
+}
 
 export async function pause(ms = config.actionDelayMs) {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -52,10 +96,7 @@ export async function buildDriver() {
   const browser = config.browser.toLowerCase();
 
   if (browser === 'edge') {
-    const options = new edge.Options().addArguments('--window-size=1440,1200');
-    if (config.headless) {
-      options.addArguments('--headless=new', '--disable-gpu');
-    }
+    const options = applyCommonBrowserFlags(new edge.Options());
 
     const driver = await new Builder()
       .forBrowser(Browser.EDGE)
@@ -67,15 +108,14 @@ export async function buildDriver() {
     return driver;
   }
 
-  const options = new chrome.Options().addArguments('--window-size=1440,1200');
-  if (config.headless) {
-    options.addArguments('--headless=new', '--disable-gpu');
-  }
+  const options = applyCommonBrowserFlags(new chrome.Options());
+  const chromeLogPath = path.join(os.tmpdir(), 'powerplan-chromedriver.log');
+  const chromeService = new chrome.ServiceBuilder(chromedriver.path).loggingTo(chromeLogPath);
 
   const driver = await new Builder()
     .forBrowser(Browser.CHROME)
     .setChromeOptions(options)
-    .setChromeService(new chrome.ServiceBuilder(chromedriver.path))
+    .setChromeService(chromeService)
     .build();
 
   await driver.manage().window().setRect({ width: 1440, height: 1200 });
@@ -101,13 +141,31 @@ export async function waitForInvisible(driver, locator, timeout = DEFAULT_TIMEOU
 }
 
 export async function click(driver, locator, timeout = DEFAULT_TIMEOUT) {
-  const element = await waitForVisible(driver, locator, timeout);
-  await driver.executeScript("arguments[0].scrollIntoView({ block: 'center' });", element);
-  await driver.wait(until.elementIsEnabled(element), timeout);
-  await pause();
-  await element.click();
-  await pause();
-  return element;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const element = await waitForVisible(driver, locator, timeout);
+      await driver.executeScript("arguments[0].scrollIntoView({ block: 'center' });", element);
+      await driver.wait(until.elementIsEnabled(element), timeout);
+      await pause();
+      await element.click();
+      await pause();
+      return element;
+    } catch (error) {
+      lastError = error;
+      const message = String(error?.message || '');
+      const isRetryable = message.includes('stale element reference') || message.includes('element click intercepted');
+
+      if (!isRetryable || attempt === 3) {
+        throw error;
+      }
+
+      await pause(250);
+    }
+  }
+
+  throw lastError;
 }
 
 export async function clearAndType(element, value) {

@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
+import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
 import { buildDriver, config } from './helpers.js';
 import { runSuite as runAuthSuite, suiteName as authSuiteName } from './auth.test.js';
@@ -17,6 +19,11 @@ const suites = [
   { name: nutritionSuiteName, runSuite: runNutritionSuite },
   { name: messagesSuiteName, runSuite: runMessagesSuite }
 ];
+
+const FRONTEND_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const REPO_ROOT = path.resolve(FRONTEND_ROOT, '..');
+const BACKEND_URL = process.env.POWERPLAN_API_URL || 'http://127.0.0.1:5001/api/register/check-email?email=selenium%40example.com';
+const SELENIUM_PASSWORD_HASH = '$2b$10$U41g6WpAFvGaKT3Jq4LMFODK.1kgMakwvDSSdRC5cjBXZo6.FALj6';
 
 async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -44,11 +51,71 @@ async function waitForUrl(url, timeoutMs = 30000) {
 }
 
 function startFrontendServer() {
-  const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  return spawn(npmCommand, ['run', 'start', '--', '--host', '127.0.0.1', '--port', '5173', '--strictPort'], {
-    cwd: process.cwd(),
+  if (process.platform === 'win32') {
+    return spawn('cmd.exe', ['/d', '/s', '/c', 'npm run start -- --host 127.0.0.1 --port 5173 --strictPort'], {
+      cwd: FRONTEND_ROOT,
+      stdio: 'inherit'
+    });
+  }
+
+  return spawn('npm', ['run', 'start', '--', '--host', '127.0.0.1', '--port', '5173', '--strictPort'], {
+    cwd: FRONTEND_ROOT,
     stdio: 'inherit'
   });
+}
+
+function runCommand(command, args, cwd, extraEnv = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        ...extraEnv
+      }
+    });
+
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(`${command} ${args.join(' ')} hibával állt le (${code}).`));
+    });
+  });
+}
+
+async function startBackendServices() {
+  if (process.platform === 'win32') {
+    await runCommand('cmd.exe', ['/d', '/s', '/c', 'docker compose up -d db backend'], REPO_ROOT);
+    return;
+  }
+
+  await runCommand('docker', ['compose', 'up', '-d', 'db', 'backend'], REPO_ROOT);
+}
+
+async function ensureBackendAvailable() {
+  if (await isUrlReachable(BACKEND_URL)) {
+    return;
+  }
+
+  await startBackendServices();
+
+  const isReady = await waitForUrl(BACKEND_URL, 60000);
+  if (!isReady) {
+    throw new Error(`A backend nem indult el ezen a címen: ${BACKEND_URL}`);
+  }
+}
+
+async function resetSeleniumUserPassword() {
+  const sql = `UPDATE users SET password_hash='${SELENIUM_PASSWORD_HASH}' WHERE email='${config.email}';`;
+  await runCommand(
+    'docker',
+    ['exec', '-e', 'MYSQL_PWD=root', 'powerplan_db', 'mysql', '-uroot', 'powerplan', '-e', sql],
+    REPO_ROOT
+  );
 }
 
 async function stopFrontendServer(childProcess) {
@@ -92,6 +159,8 @@ async function main() {
   let failed = 0;
   const failures = [];
 
+  await ensureBackendAvailable();
+  await resetSeleniumUserPassword();
   const serverProcess = await ensureFrontendAvailable();
   const sharedDriver = await buildDriver();
 
