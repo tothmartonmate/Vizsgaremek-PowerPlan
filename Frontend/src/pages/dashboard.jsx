@@ -444,11 +444,35 @@ const GymMap = ({ isActive }) => {
 
     const map = L.map(mapElementRef.current, {
       zoomControl: true,
-      scrollWheelZoom: true,
+      scrollWheelZoom: false,
       maxBounds: HUNGARY_BOUNDS,
       maxBoundsViscosity: 1.0,
       minZoom: 7
     }).setView(HUNGARY_CENTER, 7);
+
+    map.scrollWheelZoom.disable();
+
+    const enableScrollZoom = () => {
+      if (!map.scrollWheelZoom.enabled()) {
+        map.scrollWheelZoom.enable();
+      }
+    };
+
+    const disableScrollZoom = () => {
+      if (map.scrollWheelZoom.enabled()) {
+        map.scrollWheelZoom.disable();
+      }
+    };
+
+    const handleDocumentPointerDown = (event) => {
+      if (!mapElementRef.current?.contains(event.target)) {
+        disableScrollZoom();
+      }
+    };
+
+    mapElementRef.current.addEventListener('click', enableScrollZoom);
+    mapElementRef.current.addEventListener('mouseleave', disableScrollZoom);
+    document.addEventListener('pointerdown', handleDocumentPointerDown);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap közreműködők',
@@ -465,6 +489,9 @@ const GymMap = ({ isActive }) => {
     });
 
     return () => {
+      mapElementRef.current?.removeEventListener('click', enableScrollZoom);
+      mapElementRef.current?.removeEventListener('mouseleave', disableScrollZoom);
+      document.removeEventListener('pointerdown', handleDocumentPointerDown);
       markerLayerRef.current?.clearLayers();
       map.remove();
       markerLayerRef.current = null;
