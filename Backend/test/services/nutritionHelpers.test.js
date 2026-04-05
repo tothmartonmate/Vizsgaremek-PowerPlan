@@ -19,6 +19,10 @@ describe('server.js nutrition helpers', () => {
             expect(helpers.parseJsonArray(null)).toEqual([]);
         });
 
+        it('returns the same array when the input is already an array', () => {
+            expect(helpers.parseJsonArray(['vegan', 'keto'])).toEqual(['vegan', 'keto']);
+        });
+
         it('parses a valid JSON array string', () => {
             expect(helpers.parseJsonArray('["vegan","keto"]')).toEqual(['vegan', 'keto']);
         });
@@ -31,6 +35,10 @@ describe('server.js nutrition helpers', () => {
     describe('getDietPreference', () => {
         it('prioritizes vegan over every other diet type', () => {
             expect(helpers.getDietPreference('["keto","vegan","vegetarian"]')).toBe('vegan');
+        });
+
+        it('returns keto when keto is the strongest known preference present', () => {
+            expect(helpers.getDietPreference('["high-protein","keto"]')).toBe('keto');
         });
 
         it('falls back to balanced when no known preference is present', () => {
@@ -46,11 +54,26 @@ describe('server.js nutrition helpers', () => {
                 egg: true
             });
         });
+
+        it('detects accentless soy and dairy related keywords as allergies', () => {
+            expect(helpers.getAllergyFlags('turo es szoja')).toMatchObject({
+                lactose: true,
+                soy: true
+            });
+        });
     });
 
     describe('getRecommendedCalories', () => {
         it('uses the minimum floor for weight loss recommendations', () => {
             expect(helpers.getRecommendedCalories('weightLoss', 40)).toBe(1400);
+        });
+
+        it('uses the safe default weight when the provided weight is invalid', () => {
+            expect(helpers.getRecommendedCalories('fitness', 0)).toBe(2100);
+        });
+
+        it('scales muscle gain recommendations above the minimum floor for heavier users', () => {
+            expect(helpers.getRecommendedCalories('muscleGain', 90)).toBe(2970);
         });
     });
 
@@ -68,6 +91,14 @@ describe('server.js nutrition helpers', () => {
         it('rejects a meal when an enabled allergy is present', () => {
             expect(helpers.isMealCompatible(sampleMeal, 'vegetarian', { lactose: true }, 'fitness')).toBe(false);
         });
+
+        it('accepts a compatible vegetarian meal when diet allergy and goal all match', () => {
+            expect(helpers.isMealCompatible(sampleMeal, 'vegetarian', { lactose: false }, 'fitness')).toBe(true);
+        });
+
+        it('rejects a meal for keto users when the meal is not keto compatible', () => {
+            expect(helpers.isMealCompatible(sampleMeal, 'keto', { lactose: false }, 'fitness')).toBe(false);
+        });
     });
 
     describe('pickDeterministicMeal', () => {
@@ -77,6 +108,10 @@ describe('server.js nutrition helpers', () => {
             expect(helpers.pickDeterministicMeal('breakfast', candidates, 123)).toEqual(
                 helpers.pickDeterministicMeal('breakfast', candidates, 123)
             );
+        });
+
+        it('returns null when no meal candidates are available', () => {
+            expect(helpers.pickDeterministicMeal('snack', [], 99)).toBeNull();
         });
     });
 
@@ -108,6 +143,20 @@ describe('server.js nutrition helpers', () => {
             expect(result.recommendations).toHaveLength(4);
             expect(result.recommendations.every((meal) => meal.mealTypeLabel && meal.calories > 0)).toBe(true);
             expect(result.recommendationNote).toContain('24 óránként');
+        });
+
+        it('builds the standard ordered meal types for active recommendations', () => {
+            const result = helpers.buildDailyRecommendations({
+                userId: 7,
+                goal: 'strength',
+                weightKg: 100,
+                dietTypes: '["balanced"]',
+                allergies: '',
+                wantsDietRecommendations: 'yes'
+            });
+
+            expect(result.calorieTarget).toBe(3200);
+            expect(result.recommendations.map((meal) => meal.meal_type)).toEqual(['breakfast', 'lunch', 'dinner', 'snack']);
         });
     });
 });
