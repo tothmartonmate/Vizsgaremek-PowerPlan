@@ -773,6 +773,8 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const [showDeleteWorkoutModal, setShowDeleteWorkoutModal] = useState(false);
   const [progressPhotoToDelete, setProgressPhotoToDelete] = useState(null);
   const [showDeleteProgressPhotoModal, setShowDeleteProgressPhotoModal] = useState(false);
+  const [adminUserToDelete, setAdminUserToDelete] = useState(null);
+  const [showDeleteAdminUserModal, setShowDeleteAdminUserModal] = useState(false);
   
   // Edzés részletek modalhoz
   const [selectedWorkout, setSelectedWorkout] = useState(null);
@@ -1255,6 +1257,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
       }
 
       setAdminUsers((prev) => prev.filter((user) => user.id !== targetUserId));
+      closeDeleteAdminUserModal();
       showToast('Felhasználó törölve.', 'success');
     } catch (error) {
       console.error('Admin user törlési hiba:', error);
@@ -2045,6 +2048,16 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const openDeleteMealModal = (meal) => {
     setMealToDelete(meal);
     setShowDeleteMealModal(true);
+  };
+
+  const openDeleteAdminUserModal = (user) => {
+    setAdminUserToDelete(user);
+    setShowDeleteAdminUserModal(true);
+  };
+
+  const closeDeleteAdminUserModal = () => {
+    setAdminUserToDelete(null);
+    setShowDeleteAdminUserModal(false);
   };
 
   const closeDeleteMealModal = () => {
@@ -3229,7 +3242,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                               <i className="fas fa-paper-plane"></i> Üzenet küldése
                             </button>
                             {user.role !== 'admin' && (
-                              <button className="btn btn-secondary admin-delete-btn" onClick={() => deleteAdminUser(user.id)} disabled={deletingAdminUserId === user.id}>
+                              <button className="btn btn-secondary admin-delete-btn" onClick={() => openDeleteAdminUserModal(user)} disabled={deletingAdminUserId === user.id}>
                                 <i className="fas fa-trash"></i> {deletingAdminUserId === user.id ? 'Törlés...' : 'Törlés'}
                               </button>
                             )}
@@ -3620,6 +3633,25 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
           <div className="modal-buttons">
             <button type="button" className="btn btn-secondary" onClick={closeDeleteMealModal}>Mégse</button>
             <button type="button" className="btn btn-primary" onClick={() => deleteMeal(mealToDelete?.id)}>Törlés</button>
+          </div>
+        </div>
+      </div>
+
+      <div className={`modal modal-front ${showDeleteAdminUserModal ? 'active' : ''}`} onClick={(e) => {
+        if (e.target === e.currentTarget) closeDeleteAdminUserModal();
+      }}>
+        <div className="modal-content">
+          <div className="modal-header">
+            <h2><i className="fas fa-trash-alt"></i> Felhasználó törlése</h2>
+            <button className="modal-close" onClick={closeDeleteAdminUserModal}><i className="fas fa-times"></i></button>
+          </div>
+          <p>Biztosan törölni akarod ezt a felhasználót?</p>
+          <p><strong>{adminUserToDelete?.fullName || 'Ismeretlen felhasználó'}</strong> - {adminUserToDelete?.email || ''}</p>
+          <div className="modal-buttons">
+            <button type="button" className="btn btn-secondary" onClick={closeDeleteAdminUserModal}>Mégse</button>
+            <button type="button" className="btn btn-primary" onClick={() => deleteAdminUser(adminUserToDelete?.id)} disabled={!adminUserToDelete || deletingAdminUserId === adminUserToDelete.id}>
+              {deletingAdminUserId === adminUserToDelete?.id ? 'Törlés...' : 'Törlés'}
+            </button>
           </div>
         </div>
       </div>
