@@ -507,6 +507,8 @@ const ensureAdminSchema = async () => {
                 status ENUM('new', 'replied') NOT NULL DEFAULT 'new',
                 created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
                 replied_at TIMESTAMP NULL DEFAULT NULL,
+                admin_read_at TIMESTAMP NULL DEFAULT NULL,
+                user_read_at TIMESTAMP NULL DEFAULT NULL,
                 PRIMARY KEY (id),
                 KEY idx_contact_messages_user_id (user_id),
                 CONSTRAINT fk_contact_messages_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
@@ -514,11 +516,27 @@ const ensureAdminSchema = async () => {
         `);
 
         const [contactOriginColumn] = await pool.query("SHOW COLUMNS FROM contact_messages LIKE 'origin'");
+        const [contactAdminReadColumn] = await pool.query("SHOW COLUMNS FROM contact_messages LIKE 'admin_read_at'");
+        const [contactUserReadColumn] = await pool.query("SHOW COLUMNS FROM contact_messages LIKE 'user_read_at'");
 
         if (contactOriginColumn.length === 0) {
             await pool.query(`
                 ALTER TABLE contact_messages
                 ADD COLUMN origin ENUM('user', 'admin') NOT NULL DEFAULT 'user' AFTER admin_reply
+            `);
+        }
+
+        if (contactAdminReadColumn.length === 0) {
+            await pool.query(`
+                ALTER TABLE contact_messages
+                ADD COLUMN admin_read_at TIMESTAMP NULL DEFAULT NULL AFTER replied_at
+            `);
+        }
+
+        if (contactUserReadColumn.length === 0) {
+            await pool.query(`
+                ALTER TABLE contact_messages
+                ADD COLUMN user_read_at TIMESTAMP NULL DEFAULT NULL AFTER admin_read_at
             `);
         }
     } catch (error) {
@@ -1402,7 +1420,13 @@ app.get('/api/messages/:userId', async (req, res) => {
     try {
         const [messages] = await pool.query(
             `SELECT id, user_id as userId, name, email, subject, message, admin_reply as adminReply,
-                    origin, status, created_at as createdAt, replied_at as repliedAt
+                    origin, status, created_at as createdAt, replied_at as repliedAt,
+                    admin_read_at as adminReadAt, user_read_at as userReadAt,
+                    CASE
+                        WHEN origin = 'admin' AND user_read_at IS NULL THEN TRUE
+                        WHEN origin <> 'admin' AND admin_reply IS NOT NULL AND user_read_at IS NULL THEN TRUE
+                        ELSE FALSE
+                    END as isUnreadForUser
              FROM contact_messages
              WHERE user_id = ?
              ORDER BY created_at DESC`,
@@ -1412,6 +1436,33 @@ app.get('/api/messages/:userId', async (req, res) => {
         return res.json({ success: true, messages });
     } catch (error) {
         console.error('Hiba felhasználói üzenetek lekérésekor:', error);
+        return res.status(500).json({ error: 'Szerverhiba történt!' });
+    }
+});
+
+app.post('/api/messages/:userId/mark-read', async (req, res) => {
+    const userId = Number(req.params.userId);
+
+    if (!userId) {
+        return res.status(400).json({ error: 'Érvénytelen felhasználó azonosító!' });
+    }
+
+    try {
+        await pool.query(
+            `UPDATE contact_messages
+             SET user_read_at = CURRENT_TIMESTAMP
+             WHERE user_id = ?
+               AND user_read_at IS NULL
+               AND (
+                    origin = 'admin'
+                    OR (origin <> 'admin' AND admin_reply IS NOT NULL)
+               )`,
+            [userId]
+        );
+
+        return res.json({ success: true });
+    } catch (error) {
+        console.error('Hiba felhasználói üzenetek olvasottra jelölésekor:', error);
         return res.status(500).json({ error: 'Szerverhiba történt!' });
     }
 });
@@ -1491,7 +1542,12 @@ app.get('/api/admin/overview/:userId', async (req, res) => {
 
         const [messages] = await pool.query(
             `SELECT id, user_id as userId, name, email, subject, message, admin_reply as adminReply, origin, status,
-                    created_at as createdAt, replied_at as repliedAt
+                    created_at as createdAt, replied_at as repliedAt,
+                    admin_read_at as adminReadAt, user_read_at as userReadAt,
+                    CASE
+                        WHEN origin <> 'admin' AND admin_read_at IS NULL THEN TRUE
+                        ELSE FALSE
+                    END as isUnreadForAdmin
              FROM contact_messages
              ORDER BY created_at DESC`
         );
@@ -1515,6 +1571,25 @@ app.get('/api/admin/overview/:userId', async (req, res) => {
         });
     } catch (error) {
         console.error('Hiba admin áttekintés lekérésekor:', error);
+        return res.status(500).json({ error: 'Szerverhiba történt!' });
+    }
+});
+
+app.post('/api/admin/messages/mark-read', async (req, res) => {
+    const adminUserId = Number(req.body.adminUserId);
+
+    try {
+        if (!(await requireAdmin(adminUserId, res))) return;
+
+        await pool.query(
+            `UPDATE contact_messages
+             SET admin_read_at = CURRENT_TIMESTAMP
+             WHERE origin <> 'admin' AND admin_read_at IS NULL`
+        );
+
+        return res.json({ success: true });
+    } catch (error) {
+        console.error('Hiba admin üzenetek olvasottra jelölésekor:', error);
         return res.status(500).json({ error: 'Szerverhiba történt!' });
     }
 });
@@ -1569,7 +1644,8 @@ app.put('/api/admin/messages/:messageId/reply', async (req, res) => {
 
         await pool.query(
             `UPDATE contact_messages
-             SET admin_reply = ?, status = 'replied', replied_at = CURRENT_TIMESTAMP
+             SET admin_reply = ?, status = 'replied', replied_at = CURRENT_TIMESTAMP,
+                 admin_read_at = CURRENT_TIMESTAMP, user_read_at = NULL
              WHERE id = ?`,
             [replyMessage, messageId]
         );
@@ -1606,8 +1682,8 @@ app.post('/api/admin/users/:targetUserId/message', async (req, res) => {
         const targetUser = targetUsers[0];
 
         await pool.query(
-            `INSERT INTO contact_messages (user_id, name, email, subject, message, admin_reply, origin, status, replied_at)
-             VALUES (?, ?, ?, ?, '', ?, 'admin', 'replied', CURRENT_TIMESTAMP)`,
+            `INSERT INTO contact_messages (user_id, name, email, subject, message, admin_reply, origin, status, replied_at, admin_read_at, user_read_at)
+             VALUES (?, ?, ?, ?, '', ?, 'admin', 'replied', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)`,
             [targetUserId, String(targetUser.fullName || '').trim(), String(targetUser.email || '').trim(), subject, adminMessage]
         );
 

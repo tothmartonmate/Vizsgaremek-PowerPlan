@@ -176,6 +176,46 @@ const safeFitBounds = (map, bounds, fallbackToHungary = true) => {
 const getAuthHeaders = (token) => (token ? { Authorization: `Bearer ${token}` } : {});
 
 const getProfileImageStorageKey = (userId) => `powerplan_profile_image_${userId}`;
+const getUserMessageSeenStorageKey = (userId) => `powerplan_seen_user_messages_${userId}`;
+const getAdminMessageSeenStorageKey = (userId) => `powerplan_seen_admin_messages_${userId}`;
+const getUserMessageSeenIdStorageKey = (userId) => `powerplan_seen_user_message_id_${userId}`;
+const getAdminMessageSeenIdStorageKey = (userId) => `powerplan_seen_admin_message_id_${userId}`;
+
+const getStoredCurrentUser = () => {
+  if (typeof window === 'undefined') return {};
+
+  try {
+    return JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+  } catch {
+    return {};
+  }
+};
+
+const readStoredTimestamp = (storageKey) => {
+  if (typeof window === 'undefined' || !storageKey) return '';
+  return localStorage.getItem(storageKey) || '';
+};
+
+const persistStoredTimestamp = (storageKey, value) => {
+  if (typeof window === 'undefined' || !storageKey) return;
+  localStorage.setItem(storageKey, value);
+};
+
+const readStoredNumber = (storageKey) => {
+  if (typeof window === 'undefined' || !storageKey) return 0;
+  const parsed = Number(localStorage.getItem(storageKey) || 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const persistStoredNumber = (storageKey, value) => {
+  if (typeof window === 'undefined' || !storageKey) return;
+  localStorage.setItem(storageKey, String(Number(value) || 0));
+};
+
+const getTimestampValue = (value) => {
+  const timestamp = new Date(value || '').getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
 
 const preventNumberInputWheel = (event) => {
   event.currentTarget.blur();
@@ -949,13 +989,66 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const [deletingUserMessageId, setDeletingUserMessageId] = useState(null);
   const [userMessageTab, setUserMessageTab] = useState('incoming');
   const [userMessageForm, setUserMessageForm] = useState({ subject: '', message: '' });
+  const [userMessagesSeenAt, setUserMessagesSeenAt] = useState(() => {
+    const storedUser = getStoredCurrentUser();
+    return storedUser?.id ? readStoredTimestamp(getUserMessageSeenStorageKey(storedUser.id)) : '';
+  });
+  const [userMessagesSeenId, setUserMessagesSeenId] = useState(() => {
+    const storedUser = getStoredCurrentUser();
+    return storedUser?.id ? readStoredNumber(getUserMessageSeenIdStorageKey(storedUser.id)) : 0;
+  });
+  const [adminMessagesSeenAt, setAdminMessagesSeenAt] = useState(() => {
+    const storedUser = getStoredCurrentUser();
+    return storedUser?.id ? readStoredTimestamp(getAdminMessageSeenStorageKey(storedUser.id)) : '';
+  });
+  const [adminMessagesSeenId, setAdminMessagesSeenId] = useState(() => {
+    const storedUser = getStoredCurrentUser();
+    return storedUser?.id ? readStoredNumber(getAdminMessageSeenIdStorageKey(storedUser.id)) : 0;
+  });
 
   const getUserRole = (user) => (String(user?.role || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user');
   const hasAdminAccess = (user) => getUserRole(user) === 'admin' || Boolean(user?.is_admin);
+  const isUnreadForAdmin = (message) => {
+    if (message?.origin === 'admin') return false;
+    if (message?.isUnreadForAdmin) return true;
+
+    const activityAt = getTimestampValue(message?.createdAt);
+    const seenAt = getTimestampValue(adminMessagesSeenAt);
+    const backendReadAt = getTimestampValue(message?.adminReadAt);
+    const seenId = Number(adminMessagesSeenId) || 0;
+    const messageId = Number(message?.id) || 0;
+
+    if (backendReadAt >= activityAt && activityAt > 0) return false;
+    if (messageId > seenId) return true;
+    return activityAt > seenAt;
+  };
+  const isUnreadForUser = (message) => {
+    if (message?.isUnreadForUser) return true;
+
+    const seenAt = getTimestampValue(userMessagesSeenAt);
+    const backendReadAt = getTimestampValue(message?.userReadAt);
+    const seenId = Number(userMessagesSeenId) || 0;
+    const messageId = Number(message?.id) || 0;
+
+    if (message?.origin === 'admin') {
+      const activityAt = getTimestampValue(message?.createdAt);
+      if (backendReadAt >= activityAt && activityAt > 0) return false;
+      if (messageId > seenId) return true;
+      return activityAt > seenAt;
+    }
+
+    if (!message?.adminReply) return false;
+
+    const activityAt = getTimestampValue(message?.repliedAt || message?.createdAt);
+    if (backendReadAt >= activityAt && activityAt > 0) return false;
+    return activityAt > seenAt;
+  };
   const incomingAdminMessages = adminMessages.filter((message) => message.origin !== 'admin');
   const sentAdminMessages = adminMessages.filter((message) => message.origin === 'admin');
   const incomingUserMessages = userMessages.filter((message) => message.origin === 'admin' || Boolean(message.adminReply));
   const sentUserMessages = userMessages.filter((message) => message.origin !== 'admin');
+  const unreadAdminMessagesCount = incomingAdminMessages.filter(isUnreadForAdmin).length;
+  const unreadUserMessagesCount = incomingUserMessages.filter(isUnreadForUser).length;
   
   const [userData, setUserData] = useState({});
   const [workoutData, setWorkoutData] = useState({ weeklyPlan: [], stats: {}, aiRecommendation: '', recommendedPlan: [], recommendationNote: '' });
@@ -1241,7 +1334,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     finally { setLoadingWorkouts(false); }
   };
 
-  const loadAdminData = async (userId, token) => {
+  const loadAdminData = async (userId, token, options = {}) => {
     setAdminLoading(true);
     try {
       const response = await fetch(`http://localhost:5001/api/admin/overview/${userId}`, {
@@ -1252,18 +1345,20 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         const data = await response.json();
         setAdminUsers(data.users || []);
         setAdminMessages(data.messages || []);
-      } else {
+      } else if (!options.silent) {
         showToast('Nem sikerült betölteni az admin adatokat.', 'error');
       }
     } catch (error) {
       console.error('Admin adatok betöltési hiba:', error);
-      showToast('Hálózati hiba az admin adatok betöltésekor.', 'error');
+      if (!options.silent) {
+        showToast('Hálózati hiba az admin adatok betöltésekor.', 'error');
+      }
     } finally {
       setAdminLoading(false);
     }
   };
 
-  const loadUserMessages = async (userId, token) => {
+  const loadUserMessages = async (userId, token, options = {}) => {
     setUserMessagesLoading(true);
     try {
       const response = await fetch(`http://localhost:5001/api/messages/${userId}`, {
@@ -1273,14 +1368,79 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
       if (response.ok) {
         const data = await response.json();
         setUserMessages(data.messages || []);
-      } else {
+      } else if (!options.silent) {
         showToast('Nem sikerült betölteni az üzeneteidet.', 'error');
       }
     } catch (error) {
       console.error('Felhasználói üzenetek betöltési hiba:', error);
-      showToast('Hálózati hiba az üzenetek betöltésekor.', 'error');
+      if (!options.silent) {
+        showToast('Hálózati hiba az üzenetek betöltésekor.', 'error');
+      }
     } finally {
       setUserMessagesLoading(false);
+    }
+  };
+
+  const markUserMessagesAsRead = async (userId, token) => {
+    if (!userId || !token) return;
+    const seenAt = new Date().toISOString();
+    const seenId = incomingUserMessages.reduce((maxId, message) => (
+      message?.origin === 'admin' ? Math.max(maxId, Number(message.id) || 0) : maxId
+    ), userMessagesSeenId || 0);
+
+    persistStoredTimestamp(getUserMessageSeenStorageKey(userId), seenAt);
+    persistStoredNumber(getUserMessageSeenIdStorageKey(userId), seenId);
+    setUserMessagesSeenAt(seenAt);
+    setUserMessagesSeenId(seenId);
+    setUserMessages((prev) => prev.map((message) => (
+      isUnreadForUser(message)
+        ? { ...message, isUnreadForUser: false, userReadAt: seenAt }
+        : message
+    )));
+
+    try {
+      const response = await fetch(`http://localhost:5001/api/messages/${userId}/mark-read`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(token)
+        }
+      });
+
+      if (!response.ok) return;
+    } catch (error) {
+      console.error('Felhasználói üzenetek olvasottra jelölési hiba:', error);
+    }
+  };
+
+  const markAdminMessagesAsRead = async (adminUserId, token) => {
+    if (!adminUserId || !token) return;
+    const seenAt = new Date().toISOString();
+    const seenId = incomingAdminMessages.reduce((maxId, message) => Math.max(maxId, Number(message.id) || 0), adminMessagesSeenId || 0);
+
+    persistStoredTimestamp(getAdminMessageSeenStorageKey(adminUserId), seenAt);
+    persistStoredNumber(getAdminMessageSeenIdStorageKey(adminUserId), seenId);
+    setAdminMessagesSeenAt(seenAt);
+    setAdminMessagesSeenId(seenId);
+    setAdminMessages((prev) => prev.map((message) => (
+      isUnreadForAdmin(message)
+        ? { ...message, isUnreadForAdmin: false, adminReadAt: seenAt }
+        : message
+    )));
+
+    try {
+      const response = await fetch('http://localhost:5001/api/admin/messages/mark-read', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(token)
+        },
+        body: JSON.stringify({ adminUserId })
+      });
+
+      if (!response.ok) return;
+    } catch (error) {
+      console.error('Admin üzenetek olvasottra jelölési hiba:', error);
     }
   };
 
@@ -2407,21 +2567,24 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const navigateToSection = (section) => { 
     setCurrentSection(section); 
     if (window.innerWidth <= 992) setSidebarActive(false);
+    const token = localStorage.getItem('powerplan_token');
+    const savedUser = localStorage.getItem('powerplan_current_user');
+    const currentUser = savedUser ? JSON.parse(savedUser) : null;
+
     if (section === 'profile') {
-      const token = localStorage.getItem('powerplan_token');
-      const savedUser = localStorage.getItem('powerplan_current_user');
-      const currentUser = savedUser ? JSON.parse(savedUser) : null;
       if (currentUser && currentUser.id && token && currentUser.id !== 'demo-999') {
         loadUserData(currentUser.id, token);
         loadProfileImage(currentUser.id, token);
       }
     }
     if (section === 'messages') {
-      const token = localStorage.getItem('powerplan_token');
-      const savedUser = localStorage.getItem('powerplan_current_user');
-      const currentUser = savedUser ? JSON.parse(savedUser) : null;
       if (currentUser && currentUser.id && token && currentUser.id !== 'demo-999') {
         loadUserMessages(currentUser.id, token);
+      }
+    }
+    if (section === 'admin') {
+      if (currentUser && currentUser.id && token && currentUser.id !== 'demo-999' && hasAdminAccess(currentUser)) {
+        loadAdminData(currentUser.id, token);
       }
     }
   };
@@ -2471,6 +2634,76 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
       clearInterval(timer);
     };
   }, [workoutActive, currentDayKey]);
+
+  useEffect(() => {
+    const storedUser = getStoredCurrentUser();
+
+    if (!storedUser?.id) return;
+
+    setUserMessagesSeenAt(readStoredTimestamp(getUserMessageSeenStorageKey(storedUser.id)));
+    setAdminMessagesSeenAt(readStoredTimestamp(getAdminMessageSeenStorageKey(storedUser.id)));
+    setUserMessagesSeenId(readStoredNumber(getUserMessageSeenIdStorageKey(storedUser.id)));
+    setAdminMessagesSeenId(readStoredNumber(getAdminMessageSeenIdStorageKey(storedUser.id)));
+  }, [isAdmin]);
+
+  useEffect(() => {
+    const token = localStorage.getItem('powerplan_token');
+    const savedUser = localStorage.getItem('powerplan_current_user');
+    const currentUser = savedUser ? JSON.parse(savedUser) : null;
+
+    if (!currentUser?.id || !token || currentUser.id === 'demo-999') {
+      return undefined;
+    }
+
+    const interval = setInterval(() => {
+      loadUserMessages(currentUser.id, token, { silent: true });
+      if (hasAdminAccess(currentUser)) {
+        loadAdminData(currentUser.id, token, { silent: true });
+      }
+    }, 8000);
+
+    return () => clearInterval(interval);
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (currentSection !== 'messages' || userMessageTab !== 'incoming' || unreadUserMessagesCount === 0) {
+      return undefined;
+    }
+
+    const token = localStorage.getItem('powerplan_token');
+    const savedUser = localStorage.getItem('powerplan_current_user');
+    const currentUser = savedUser ? JSON.parse(savedUser) : null;
+
+    if (!currentUser?.id || !token) {
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(() => {
+      markUserMessagesAsRead(currentUser.id, token);
+    }, 1800);
+
+    return () => clearTimeout(timeoutId);
+  }, [currentSection, userMessageTab, unreadUserMessagesCount]);
+
+  useEffect(() => {
+    if (currentSection !== 'admin' || adminActivePanel !== 'messages' || adminMessageTab !== 'incoming' || unreadAdminMessagesCount === 0) {
+      return undefined;
+    }
+
+    const token = localStorage.getItem('powerplan_token');
+    const savedUser = localStorage.getItem('powerplan_current_user');
+    const currentUser = savedUser ? JSON.parse(savedUser) : null;
+
+    if (!currentUser?.id || !token || !hasAdminAccess(currentUser)) {
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(() => {
+      markAdminMessagesAsRead(currentUser.id, token);
+    }, 1800);
+
+    return () => clearTimeout(timeoutId);
+  }, [currentSection, adminActivePanel, adminMessageTab, unreadAdminMessagesCount]);
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60); 
@@ -2751,19 +2984,21 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const sectionTitles = {
     'dashboard': { icon: 'fa-home', text: 'Dashboard', subtitle: 'Üdvözöljük!' },
     'workout-plan': { icon: 'fa-dumbbell', text: 'Edzésterv', subtitle: 'Heti edzésterv' },
-    'workout-mode': { icon: 'fa-play-circle', text: 'Stopper', subtitle: 'Aktív edzés' },
     'fejlodes': { icon: 'fa-camera', text: 'Fejlődés', subtitle: 'Testfotók és megjegyzések' },
     'nutrition': { icon: 'fa-utensils', text: 'Táplálkozás', subtitle: 'Kalóriakövetés' },
     'gyms': { icon: 'fa-map-marker-alt', text: 'Edzőtermek', subtitle: 'Közeli termek' },
     'exercises': { icon: 'fa-video', text: 'Gyakorlatok', subtitle: 'Oktatóvideók' },
     'badges': { icon: 'fa-trophy', text: 'Jelvények' },
+    'workout-mode': { icon: 'fa-play-circle', text: 'Stopper', subtitle: 'Aktív edzés' },
     'messages': { icon: 'fa-envelope', text: 'Üzeneteim', subtitle: 'Admin válaszok és üzenetküldés' },
     'profile': { icon: 'fa-user-circle', text: 'Profil', subtitle: 'Személyes adatok' }
   };
+  const navigationSections = ['dashboard', 'workout-plan', 'exercises', 'gyms', 'nutrition', 'fejlodes', 'badges', 'workout-mode', 'messages', 'profile'];
   const greetingName = getDisplayFirstName(userData.personalInfo, editFormData.fullName);
 
   if (isAdmin) {
     sectionTitles.admin = { icon: 'fa-user-shield', text: 'Admin', subtitle: 'Üzenetek és felhasználók' };
+    navigationSections.push('admin');
   }
 
   return (
@@ -2784,12 +3019,20 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
           <div className="user-goal">{userData.goals?.mainGoal || 'Cél nincs megadva'}</div>
         </div>
         <div className="nav-menu">
-          {Object.keys(sectionTitles).map(section => (
-            <div key={section} className={`nav-item ${currentSection === section ? 'active' : ''}`} onClick={() => navigateToSection(section)}>
+          {navigationSections.map(section => {
+            const unreadCount = section === 'messages'
+              ? unreadUserMessagesCount
+              : section === 'admin'
+                ? unreadAdminMessagesCount
+                : 0;
+
+            return (
+            <div key={section} className={`nav-item ${currentSection === section ? 'active' : ''} ${unreadCount > 0 ? 'has-unread' : ''}`} onClick={() => navigateToSection(section)}>
               <i className={`fas ${sectionTitles[section].icon}`}></i>
               <span>{sectionTitles[section].text}</span>
+              {unreadCount > 0 && <span className="nav-item-badge">{unreadCount}</span>}
             </div>
-          ))}
+          );})}
         </div>
         <button className="logout-btn" onClick={logout}><i className="fas fa-sign-out-alt"></i><span>Kijelentkezés</span></button>
       </div>
@@ -3305,7 +3548,10 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                     className={`admin-panel-header admin-panel-tab ${adminActivePanel === 'messages' ? 'active' : ''}`}
                     onClick={() => setAdminActivePanel('messages')}
                   >
-                    <h3>Kapcsolati üzenetek</h3>
+                    <h3>
+                      Kapcsolati üzenetek
+                      {unreadAdminMessagesCount > 0 && <strong className="inline-unread-badge">{unreadAdminMessagesCount} új</strong>}
+                    </h3>
                     <span>{adminMessages.length} db</span>
                   </button>
                   <div className={`admin-grid ${adminActivePanel === 'messages' ? 'active' : ''}`}>
@@ -3317,6 +3563,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                       >
                         Beérkezett üzenetek
                         <span>{incomingAdminMessages.length}</span>
+                        {unreadAdminMessagesCount > 0 && <strong className="inline-unread-badge">{unreadAdminMessagesCount} új</strong>}
                       </button>
                       <button
                         type="button"
@@ -3328,13 +3575,13 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                       </button>
                     </div>
                     {(adminMessageTab === 'incoming' ? incomingAdminMessages : sentAdminMessages).map((message) => (
-                      <div key={message.id} className="admin-message-card">
+                      <div key={message.id} className={`admin-message-card ${isUnreadForAdmin(message) ? 'unread-thread' : ''}`}>
                         <div className="admin-card-top">
                           <div>
                             <h4>{message.subject}</h4>
                             <p className="admin-meta">{message.name} • {message.email}</p>
                           </div>
-                          <span className={`admin-status-pill ${message.status}`}>{message.status === 'replied' ? 'Megválaszolva' : 'Új'}</span>
+                          <span className={`admin-status-pill ${isUnreadForAdmin(message) ? 'unread' : message.status}`}>{isUnreadForAdmin(message) ? 'Új' : message.status === 'replied' ? 'Megválaszolva' : 'Feldolgozás alatt'}</span>
                         </div>
                         {message.origin === 'admin' ? (
                           <div className="message-bubble admin-message-bubble admin-sent-bubble">
@@ -3498,7 +3745,10 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
 
               <div className="messages-list-card">
                 <div className="section-header compact">
-                  <h3>Üzenetek</h3>
+                  <h3>
+                    Üzenetek
+                    {unreadUserMessagesCount > 0 && <strong className="inline-unread-badge">{unreadUserMessagesCount} új</strong>}
+                  </h3>
                 </div>
                 {userMessagesLoading ? (
                   <div className="loading-spinner"><i className="fas fa-spinner fa-spin"></i> Üzenetek betöltése...</div>
@@ -3512,6 +3762,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                       >
                         Beérkezett üzenetek
                         <span>{incomingUserMessages.length}</span>
+                        {unreadUserMessagesCount > 0 && <strong className="inline-unread-badge">{unreadUserMessagesCount} új</strong>}
                       </button>
                       <button
                         type="button"
@@ -3523,13 +3774,13 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                       </button>
                     </div>
                     {(userMessageTab === 'incoming' ? incomingUserMessages : sentUserMessages).map((message) => (
-                      <div key={message.id} className="admin-message-card user-message-thread">
+                      <div key={message.id} className={`admin-message-card user-message-thread ${isUnreadForUser(message) ? 'unread-thread' : ''}`}>
                         <div className="admin-card-top">
                           <div>
                             <h4>{message.subject}</h4>
                             <p className="admin-meta">Elküldve: {new Date(message.createdAt).toLocaleString('hu-HU')}</p>
                           </div>
-                          <span className={`admin-status-pill ${message.status}`}>{message.status === 'replied' ? 'Megválaszolva' : 'Függőben'}</span>
+                          <span className={`admin-status-pill ${isUnreadForUser(message) ? 'unread' : message.status}`}>{isUnreadForUser(message) ? 'Új' : message.status === 'replied' ? 'Megválaszolva' : 'Függőben'}</span>
                         </div>
                         {userMessageTab === 'sent' && message.origin !== 'admin' && (
                           <div className="message-bubble user-message-bubble">

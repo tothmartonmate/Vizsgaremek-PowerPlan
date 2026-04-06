@@ -333,6 +333,26 @@ body.dark-mode .sidebar .logo span {
   font-size: 0.95rem;
 }
 
+.nav-item.has-unread {
+  color: #ffffff;
+}
+
+.nav-item-badge {
+  margin-left: auto;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 800;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+}
+
 .logout-btn {
   display: flex;
   align-items: center;
@@ -2074,6 +2094,30 @@ body.dark-mode .theme-toggle-btn:hover {
 .admin-status-pill.replied {
   background: rgba(42, 157, 143, 0.18);
   color: var(--success);
+}
+
+.admin-status-pill.unread {
+  background: rgba(230, 57, 70, 0.16);
+  color: var(--primary);
+}
+
+.unread-thread {
+  border-color: rgba(230, 57, 70, 0.28);
+  box-shadow: 0 10px 24px rgba(230, 57, 70, 0.08);
+}
+
+.inline-unread-badge {
+  margin-left: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(230, 57, 70, 0.14);
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  vertical-align: middle;
 }
 
 .admin-form-grid {
