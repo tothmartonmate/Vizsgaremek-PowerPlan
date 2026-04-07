@@ -27,6 +27,18 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const normalizeUserRole = (value) => (String(value || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user');
 
+const formatLocalDateKey = (dateInput) => {
+    const date = dateInput instanceof Date ? new Date(dateInput) : new Date(dateInput);
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 let mailTransporterPromise;
 const getMailTransporter = async () => {
     if (!mailTransporterPromise) {
@@ -192,6 +204,17 @@ const DAILY_MEAL_LABELS = {
     snack: 'Snack'
 };
 
+const formatRecommendationDateLabel = (dateInput) => {
+    const date = dateInput instanceof Date ? new Date(dateInput) : new Date(dateInput);
+    if (Number.isNaN(date.getTime())) return new Date().toLocaleDateString('hu-HU');
+
+    return date.toLocaleDateString('hu-HU', {
+        month: 'long',
+        day: 'numeric',
+        weekday: 'short'
+    });
+};
+
 const getDietPreference = (dietTypes) => {
     const normalizedDietTypes = parseJsonArray(dietTypes).map(normalizeText);
     if (normalizedDietTypes.includes('vegan')) return 'vegan';
@@ -245,31 +268,94 @@ const pickDeterministicMeal = (mealType, candidates, seed) => {
     return candidates[index];
 };
 
-const buildDailyRecommendations = ({ userId, goal, weightKg, dietTypes, allergies, wantsDietRecommendations }) => {
+const getCompatibleMealPool = (mealType, dietPreference, allergyFlags, goal) => {
+    const allMeals = DAILY_MEAL_LIBRARY[mealType] || [];
+    const filteredMeals = allMeals.filter((meal) => isMealCompatible(meal, dietPreference, allergyFlags, goal));
+
+    if (filteredMeals.length > 0) {
+        return filteredMeals;
+    }
+
+    const fallbackMeals = allMeals.filter((meal) => !Object.entries(allergyFlags).some(([allergy, enabled]) => enabled && meal.allergens.includes(allergy)));
+    return fallbackMeals.length > 0 ? fallbackMeals : allMeals;
+};
+
+const getVariedMealPool = (mealType, dietPreference, allergyFlags, goal) => {
+    const allMeals = DAILY_MEAL_LIBRARY[mealType] || [];
+    const strictMeals = allMeals.filter((meal) => isMealCompatible(meal, dietPreference, allergyFlags, goal));
+
+    const sameDietMeals = allMeals.filter((meal) => {
+        const hasBlockedAllergen = Object.entries(allergyFlags).some(([allergy, enabled]) => enabled && meal.allergens.includes(allergy));
+        if (hasBlockedAllergen) {
+            return false;
+        }
+
+        if (dietPreference === 'vegan') {
+            return meal.diets.includes('vegan');
+        }
+
+        if (dietPreference === 'vegetarian') {
+            return meal.diets.some((diet) => diet === 'vegetarian' || diet === 'vegan');
+        }
+
+        if (dietPreference === 'keto') {
+            return meal.diets.includes('keto');
+        }
+
+        return meal.diets.includes('balanced') || meal.diets.includes('vegetarian') || meal.diets.includes('vegan') || meal.diets.includes('keto');
+    });
+
+    const uniqueMeals = [];
+    const seenMealNames = new Set();
+    [...strictMeals, ...sameDietMeals].forEach((meal) => {
+        if (!meal?.name || seenMealNames.has(meal.name)) {
+            return;
+        }
+
+        seenMealNames.add(meal.name);
+        uniqueMeals.push(meal);
+    });
+
+    return uniqueMeals.length > 0 ? uniqueMeals : getCompatibleMealPool(mealType, dietPreference, allergyFlags, goal);
+};
+
+const buildWeeklyMealRotation = (mealType, userId, weekSeed, dietPreference, allergyFlags, goal) => {
+    const pool = getVariedMealPool(mealType, dietPreference, allergyFlags, goal);
+    if (!pool.length) {
+        return [];
+    }
+
+    return pool
+        .map((meal, index) => ({
+            meal,
+            order: Math.abs(weekSeed + mealType.length * 17 + index * 31 + String(meal.name || '').length * 7) % 997
+        }))
+        .sort((firstItem, secondItem) => firstItem.order - secondItem.order)
+        .map((item) => item.meal);
+};
+
+const buildDailyRecommendations = ({ userId, goal, weightKg, dietTypes, allergies, wantsDietRecommendations, dateInput }) => {
     if (wantsDietRecommendations === 'no') {
+        const recommendationDate = dateInput ? new Date(dateInput) : new Date();
         return {
             recommendations: [],
             calorieTarget: 0,
-            recommendationDate: new Date().toISOString().split('T')[0],
-            recommendationDateLabel: new Date().toLocaleDateString('hu-HU'),
+            recommendationDate: formatLocalDateKey(recommendationDate),
+            recommendationDateLabel: formatRecommendationDateLabel(recommendationDate),
             recommendationNote: 'A kérdőív alapján nem kértél étrendi ajánlást.'
         };
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const daySeed = Math.floor(today.getTime() / 86400000) + Number(userId || 0) * 17;
+    const targetDate = dateInput ? new Date(dateInput) : new Date();
+    targetDate.setHours(0, 0, 0, 0);
+    const daySeed = Math.floor(targetDate.getTime() / 86400000) + Number(userId || 0) * 17;
     const dietPreference = getDietPreference(dietTypes);
     const allergyFlags = getAllergyFlags(allergies);
     const calorieTarget = getRecommendedCalories(goal, weightKg);
 
     const recommendations = Object.keys(DAILY_MEAL_LIBRARY).map((mealType, index) => {
-        const allMeals = DAILY_MEAL_LIBRARY[mealType];
-        const filteredMeals = allMeals.filter((meal) => isMealCompatible(meal, dietPreference, allergyFlags, goal));
-        const fallbackMeals = filteredMeals.length > 0
-            ? filteredMeals
-            : allMeals.filter((meal) => !Object.entries(allergyFlags).some(([allergy, enabled]) => enabled && meal.allergens.includes(allergy)));
-        const selectedMeal = pickDeterministicMeal(mealType, fallbackMeals.length > 0 ? fallbackMeals : allMeals, daySeed + index * 13);
+        const compatibleMeals = getCompatibleMealPool(mealType, dietPreference, allergyFlags, goal);
+        const selectedMeal = pickDeterministicMeal(mealType, compatibleMeals, daySeed + index * 13);
         const calories = Math.round(calorieTarget * DAILY_MEAL_RATIOS[mealType]);
 
         return {
@@ -284,10 +370,79 @@ const buildDailyRecommendations = ({ userId, goal, weightKg, dietTypes, allergie
     return {
         recommendations,
         calorieTarget,
-        recommendationDate: today.toISOString().split('T')[0],
-        recommendationDateLabel: today.toLocaleDateString('hu-HU'),
-        recommendationNote: 'Az ajánlott étrend 24 óránként automatikusan frissül a kérdőív adatai alapján.'
+        recommendationDate: formatLocalDateKey(targetDate),
+        recommendationDateLabel: formatRecommendationDateLabel(targetDate),
+        recommendationNote: 'A kiválasztott naphoz külön étrendi ajánlást látsz a kérdőív adatai alapján.'
     };
+};
+
+const buildWeeklyRecommendations = ({ userId, goal, weightKg, dietTypes, allergies, wantsDietRecommendations, startDate }) => {
+    const baseDate = startDate ? new Date(startDate) : new Date();
+    if (Number.isNaN(baseDate.getTime())) {
+        return [];
+    }
+
+    const startOfWeek = new Date(baseDate);
+    const dayOfWeek = startOfWeek.getDay();
+    const diffToMonday = dayOfWeek === 0 ? -6 : -(dayOfWeek - 1);
+    startOfWeek.setDate(startOfWeek.getDate() + diffToMonday);
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const dietPreference = getDietPreference(dietTypes);
+    const allergyFlags = getAllergyFlags(allergies);
+    const calorieTarget = wantsDietRecommendations === 'no' ? 0 : getRecommendedCalories(goal, weightKg);
+    const weekSeed = Math.floor(startOfWeek.getTime() / 86400000) + Number(userId || 0) * 23;
+    const mealRotations = Object.keys(DAILY_MEAL_LIBRARY).reduce((accumulator, mealType, mealTypeIndex) => {
+        accumulator[mealType] = buildWeeklyMealRotation(mealType, userId, weekSeed + mealTypeIndex * 41, dietPreference, allergyFlags, goal);
+        return accumulator;
+    }, {});
+
+    return Array.from({ length: 7 }, (_, index) => {
+        const currentDate = new Date(startOfWeek);
+        currentDate.setDate(startOfWeek.getDate() + index);
+        if (wantsDietRecommendations === 'no') {
+            return buildDailyRecommendations({
+                userId,
+                goal,
+                weightKg,
+                dietTypes,
+                allergies,
+                wantsDietRecommendations,
+                dateInput: currentDate
+            });
+        }
+
+        const recommendations = Object.keys(DAILY_MEAL_LIBRARY).map((mealType, mealIndex) => {
+            const rotation = mealRotations[mealType] || [];
+            if (!rotation.length) {
+                return {
+                    meal_type: mealType,
+                    mealTypeLabel: DAILY_MEAL_LABELS[mealType],
+                    name: 'Ajánlás nem elérhető',
+                    description: 'Ehhez a kombinációhoz jelenleg nincs pontos ajánlat.',
+                    calories: Math.round(calorieTarget * DAILY_MEAL_RATIOS[mealType])
+                };
+            }
+
+            const selectedMeal = rotation[(index + mealIndex) % rotation.length];
+
+            return {
+                meal_type: mealType,
+                mealTypeLabel: DAILY_MEAL_LABELS[mealType],
+                name: selectedMeal?.name || 'Ajánlás nem elérhető',
+                description: selectedMeal?.desc || 'Ehhez a kombinációhoz jelenleg nincs pontos ajánlat.',
+                calories: Math.round(calorieTarget * DAILY_MEAL_RATIOS[mealType])
+            };
+        });
+
+        return {
+            recommendations,
+            calorieTarget,
+            recommendationDate: formatLocalDateKey(currentDate),
+            recommendationDateLabel: formatRecommendationDateLabel(currentDate),
+            recommendationNote: 'A kiválasztott naphoz külön étrendi ajánlást látsz a kérdőív adatai alapján.'
+        };
+    });
 };
 
 const WORKOUT_DAY_OPTIONS = {
@@ -879,6 +1034,8 @@ const getWeekRangeFromDate = (dateInput) => {
 // -------------------- DASHBOARD --------------------
 app.get('/api/dashboard/:userId', async (req, res) => {
     const userId = req.params.userId;
+    const referenceDate = req.query.date ? new Date(req.query.date) : new Date();
+    const safeReferenceDate = Number.isNaN(referenceDate.getTime()) ? new Date() : referenceDate;
     try {
         const [meals] = await pool.query(`SELECT id, meal_type, food_name as name, description, calories, protein_g as protein, carbs_g as carbs, fat_g as fat, DATE_FORMAT(consumed_date, '%H:%i') as time FROM nutrition_logs WHERE user_id = ? AND consumed_date = CURDATE() ORDER BY created_at DESC`, [userId]);
         const [workoutRows] = await pool.query(
@@ -909,6 +1066,7 @@ app.get('/api/dashboard/:userId', async (req, res) => {
         const questionnaire = qRows[0] || null;
         let recommendedMeals = [];
         let dailyDietPlan = { recommendations: [], calorieTarget: 0, recommendationDate: '', recommendationDateLabel: '', recommendationNote: '' };
+        let weeklyDietPlan = [];
         let workoutPlanRecommendation = buildWorkoutRecommendation({
             goal: questionnaire?.main_goal || 'fitness',
             experienceLevel: questionnaire?.experience_level || 'beginner',
@@ -936,14 +1094,25 @@ app.get('/api/dashboard/:userId', async (req, res) => {
                 recommendedMeals.push({ name: '🌟 Laktózmentes Turmix', cals: 200, desc: 'Laktózérzékenyeknek!' });
             }
 
-            dailyDietPlan = buildDailyRecommendations({
+            weeklyDietPlan = buildWeeklyRecommendations({
                 userId,
                 goal,
                 weightKg: questionnaire.weight_kg,
                 dietTypes: questionnaire.diet_types,
                 allergies: questionnaire.allergies,
-                wantsDietRecommendations: questionnaire.wants_diet_recommendations
+                wantsDietRecommendations: questionnaire.wants_diet_recommendations,
+                startDate: safeReferenceDate
             });
+            dailyDietPlan = weeklyDietPlan.find((dayPlan) => dayPlan.recommendationDate === formatLocalDateKey(safeReferenceDate))
+                || buildDailyRecommendations({
+                    userId,
+                    goal,
+                    weightKg: questionnaire.weight_kg,
+                    dietTypes: questionnaire.diet_types,
+                    allergies: questionnaire.allergies,
+                    wantsDietRecommendations: questionnaire.wants_diet_recommendations,
+                    dateInput: safeReferenceDate
+                });
         } else {
             workoutPlanRecommendation.recommendationNote = 'A mintaedzésterv akkor is elérhető, ha még nem töltötted ki teljesen a kérdőívet.';
         }
@@ -959,6 +1128,7 @@ app.get('/api/dashboard/:userId', async (req, res) => {
                 dailyCalories: meals.reduce((sum, meal) => sum + meal.calories, 0),
                 macros: { protein: 0, carbs: 0, fat: 0 },
                 recommendations: dailyDietPlan.recommendations,
+                weeklyRecommendations: weeklyDietPlan,
                 legacyRecommendations: recommendedMeals,
                 calorieTarget: dailyDietPlan.calorieTarget,
                 recommendationDate: dailyDietPlan.recommendationDate,
@@ -1794,6 +1964,7 @@ module.exports = {
         isMealCompatible,
         pickDeterministicMeal,
         buildDailyRecommendations,
+        buildWeeklyRecommendations,
         getExercisePrescription,
         withExercisePrescriptions,
         buildWorkoutRecommendation,

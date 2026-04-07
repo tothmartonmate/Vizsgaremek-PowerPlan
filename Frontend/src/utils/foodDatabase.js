@@ -1,4 +1,35 @@
-const createFood = (name, calories) => ({ name, calories });
+const parseServingMetadata = (name) => {
+  const normalizedName = String(name || '');
+  const gramMatch = normalizedName.match(/\((\d+)\s*g\)/i);
+  if (gramMatch) {
+    const servingGrams = Number(gramMatch[1]);
+    return {
+      calorieBasisGrams: servingGrams,
+      calorieBasisLabel: `${servingGrams} g`
+    };
+  }
+
+  const spoonMatch = normalizedName.match(/\((\d+)\s*ek\)/i);
+  if (spoonMatch) {
+    const spoonCount = Number(spoonMatch[1]) || 1;
+    const estimatedServingGrams = spoonCount * 20;
+    return {
+      calorieBasisGrams: estimatedServingGrams,
+      calorieBasisLabel: `${spoonCount} evőkanál (~${estimatedServingGrams} g)`
+    };
+  }
+
+  return {
+    calorieBasisGrams: 100,
+    calorieBasisLabel: '100 g'
+  };
+};
+
+const createFood = (name, calories) => ({
+  name,
+  calories,
+  ...parseServingMetadata(name)
+});
 
 export const FOOD_DB = {
   'Reggeli ételek': [

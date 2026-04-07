@@ -13,6 +13,9 @@ const MIN_REALISTIC_WEIGHT_KG = 30;
 const MAX_REALISTIC_WEIGHT_KG = 200;
 const WEIGHT_CHART_PADDING_KG = 20;
 const WEIGHT_CHART_STEP_KG = 5;
+const PROFILE_IMAGE_EDITOR_SIZE = 320;
+const RPE_TOOLTIP_TEXT = 'Az RPE az erőkifejtés szubjektív skálája 1 és 10 között. Az 1 nagyon könnyű, a 7-8 már nehéz, de még marad 2-3 ismétlés a tartalékban, a 9 majdnem bukás, a 10 pedig teljes kifáradás, amikor már nem tudnál még egy szabályos ismétlést végrehajtani.';
+const WORKOUT_DAY_KEYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
 const formatLocalDate = (dateInput) => {
   const date = dateInput instanceof Date ? new Date(dateInput) : new Date(dateInput);
@@ -86,7 +89,9 @@ const formatDistance = (distanceKm) => {
   return `${Math.round(distanceKm)} km`;
 };
 
-const normalizeSearchText = (value) => value
+const sortByHungarianLabel = (firstValue, secondValue) => String(firstValue || '').localeCompare(String(secondValue || ''), 'hu', { sensitivity: 'base' });
+
+const normalizeSearchText = (value) => String(value || '')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
   .toLocaleLowerCase('hu-HU');
@@ -147,6 +152,17 @@ const safeSetHungaryView = (map) => {
   } catch (error) {
     console.warn('Térkép nézet visszaállítási hiba:', error);
   }
+};
+
+const formatRecommendationCardDateLabel = (dateInput) => {
+  const date = dateInput instanceof Date ? new Date(dateInput) : new Date(dateInput);
+  if (Number.isNaN(date.getTime())) return '-';
+
+  return date.toLocaleDateString('hu-HU', {
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short'
+  });
 };
 
 const safeFitBounds = (map, bounds, fallbackToHungary = true) => {
@@ -254,6 +270,137 @@ const getWeightAxisBounds = (weightValues, anchorWeight) => {
     min: Math.max(0, Math.floor(minWeight / WEIGHT_CHART_STEP_KG) * WEIGHT_CHART_STEP_KG),
     max: Math.ceil(maxWeight / WEIGHT_CHART_STEP_KG) * WEIGHT_CHART_STEP_KG
   };
+};
+
+const getTodayWorkoutDayKey = (dateInput = new Date()) => {
+  const date = dateInput instanceof Date ? new Date(dateInput) : new Date(dateInput);
+  if (Number.isNaN(date.getTime())) return 'monday';
+  const weekdayIndex = date.getDay();
+  return WORKOUT_DAY_KEYS[weekdayIndex === 0 ? 6 : weekdayIndex - 1];
+};
+
+const inferDefaultRpeValue = (prescription) => {
+  const normalized = normalizeSearchText(String(prescription || ''));
+  if (!normalized || normalized.includes('perc')) return '';
+  if (/4-6|5-8/.test(normalized)) return '8';
+  if (/8-10|10-12/.test(normalized)) return '7';
+  if (/12-15/.test(normalized)) return '6';
+  return '7';
+};
+
+const getRecommendedExerciseMuscleGroup = (exerciseName, workoutType) => {
+  const normalizedExerciseName = normalizeSearchText(String(exerciseName || ''));
+  const normalizedWorkoutType = normalizeSearchText(workoutType);
+
+  for (const [muscleGroup, exercises] of Object.entries(EXERCISE_DB_WITH_VIDEOS)) {
+    const hasExactMatch = exercises.some((exercise) => normalizeSearchText(exercise.name) === normalizedExerciseName);
+    if (hasExactMatch) return muscleGroup;
+  }
+
+  if (/fut|kocog|bicikli|kerekpar|seta|s[eé]ta|intervall|swing|kit[oö]r[eé]s|guggol|vadli|v[aá]dli|l[aá]b/i.test(normalizedExerciseName)) return 'Láb';
+  if (/h[uú]z[oó]dzk|leh[uú]z|evez|felh[uú]z|deadlift|rack pull/i.test(normalizedExerciseName)) return 'Hát';
+  if (/fekvenyom|fekv[oő]t[aá]masz|t[aá]rogat|nyom[aá]s|tol[oó]dzkod[aá]s mell/i.test(normalizedExerciseName)) return normalizedWorkoutType === 'push' ? 'Mell' : 'Váll';
+  if (/oldalemel|v[aá]ll|arnold|face pull|katonai/i.test(normalizedExerciseName)) return 'Váll';
+  if (/bicepsz|curl|karhajl[ií]t/i.test(normalizedExerciseName)) return 'Bicepsz';
+  if (/tricepsz|letol[aá]s|koponyaz[uú]z[oó]|sz[uű]k nyom[aá]s|szuk nyomas/i.test(normalizedExerciseName)) return 'Tricepsz';
+  if (/plank|has|core|hasker[eé]k|mobilit|ny[uú]jt|nyujt/i.test(normalizedExerciseName)) return 'Has';
+
+  if (normalizedWorkoutType === 'cardio') return 'Láb';
+  if (normalizedWorkoutType === 'lower' || normalizedWorkoutType === 'legs' || normalizedWorkoutType === 'leg') return 'Láb';
+  if (normalizedWorkoutType === 'pull') return 'Hát';
+  if (normalizedWorkoutType === 'push') return 'Mell';
+
+  return 'Has';
+};
+
+const getSetsFromPrescription = (prescription, workoutType) => {
+  const normalizedPrescription = String(prescription || '').trim();
+  const parsedMatch = normalizedPrescription.match(/^(\d+)\s*x\s*(.+)$/i);
+
+  if (!parsedMatch) {
+    return [{ weight: '', reps: normalizedPrescription || '8-12', rpe: inferDefaultRpeValue(normalizedPrescription) }];
+  }
+
+  const setsCount = Math.max(1, Number(parsedMatch[1]) || 1);
+  const repsValue = parsedMatch[2].trim();
+  const defaultRpe = normalizeSearchText(workoutType) === 'cardio' ? '' : inferDefaultRpeValue(repsValue);
+
+  return Array.from({ length: setsCount }, () => ({
+    weight: '',
+    reps: repsValue,
+    rpe: defaultRpe
+  }));
+};
+
+const getProfileEditorMetrics = (dimensions, scale, size = PROFILE_IMAGE_EDITOR_SIZE) => {
+  const width = Number(dimensions?.width) || size;
+  const height = Number(dimensions?.height) || size;
+  const baseScale = Math.max(size / width, size / height);
+  const drawWidth = width * baseScale * scale;
+  const drawHeight = height * baseScale * scale;
+
+  return {
+    drawWidth,
+    drawHeight,
+    maxOffsetX: Math.max(0, (drawWidth - size) / 2),
+    maxOffsetY: Math.max(0, (drawHeight - size) / 2)
+  };
+};
+
+const clampProfileEditorOffsets = (offsetX, offsetY, dimensions, scale, size = PROFILE_IMAGE_EDITOR_SIZE) => {
+  const metrics = getProfileEditorMetrics(dimensions, scale, size);
+  return {
+    offsetX: Math.min(metrics.maxOffsetX, Math.max(-metrics.maxOffsetX, offsetX)),
+    offsetY: Math.min(metrics.maxOffsetY, Math.max(-metrics.maxOffsetY, offsetY))
+  };
+};
+
+const getProfileEditorPreviewStyle = (dimensions, scale, offsetX, offsetY, size = PROFILE_IMAGE_EDITOR_SIZE) => {
+  const metrics = getProfileEditorMetrics(dimensions, scale, size);
+  return {
+    width: `${metrics.drawWidth}px`,
+    height: `${metrics.drawHeight}px`,
+    left: `${(size - metrics.drawWidth) / 2 + offsetX}px`,
+    top: `${(size - metrics.drawHeight) / 2 + offsetY}px`
+  };
+};
+
+const loadImageDimensions = (src) => new Promise((resolve, reject) => {
+  const image = new Image();
+  image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+  image.onerror = () => reject(new Error('Nem sikerült betölteni a képet.'));
+  image.src = src;
+});
+
+const renderProfileImageDataUrl = (src, dimensions, scale, offsetX, offsetY, size = PROFILE_IMAGE_EDITOR_SIZE) => new Promise((resolve, reject) => {
+  const image = new Image();
+  image.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+
+    const context = canvas.getContext('2d');
+    const metrics = getProfileEditorMetrics(dimensions, scale, size);
+    const drawX = (size - metrics.drawWidth) / 2 + offsetX;
+    const drawY = (size - metrics.drawHeight) / 2 + offsetY;
+
+    context.drawImage(image, drawX, drawY, metrics.drawWidth, metrics.drawHeight);
+    resolve(canvas.toDataURL('image/png'));
+  };
+  image.onerror = () => reject(new Error('Nem sikerült feldolgozni a képet.'));
+  image.src = src;
+});
+
+const stripRecommendedWorkoutSuffix = (name) => String(name || '').replace(/\s*\(minta\)\s*$/i, '').trim();
+
+const isRecommendedWorkoutCompleted = (recommendedWorkout, loggedWorkout) => {
+  const recommendedTitle = normalizeSearchText(stripRecommendedWorkoutSuffix(recommendedWorkout?.title));
+  const loggedTitle = normalizeSearchText(stripRecommendedWorkoutSuffix(loggedWorkout?.name));
+  if (!recommendedTitle || !loggedTitle || recommendedTitle !== loggedTitle) {
+    return false;
+  }
+
+  return serializeWorkoutTypeValue(recommendedWorkout?.workoutType) === serializeWorkoutTypeValue(loggedWorkout?.workout_type);
 };
 
 const getMarkerPosition = (gym, duplicateIndex) => {
@@ -376,7 +523,9 @@ const MUSCLE_FILTER = {
   'full body': Object.keys(EXERCISE_DB_WITH_VIDEOS),
   'arms': ['Bicepsz', 'Tricepsz'],
   'legs': ['Láb', 'Has'],
-  'full_body': Object.keys(EXERCISE_DB_WITH_VIDEOS)
+  'full_body': Object.keys(EXERCISE_DB_WITH_VIDEOS),
+  'cardio': ['Láb', 'Has'],
+  'hiit': Object.keys(EXERCISE_DB_WITH_VIDEOS)
 };
 
 const WORKOUT_TYPE_LABELS = {
@@ -388,7 +537,9 @@ const WORKOUT_TYPE_LABELS = {
   'full body': 'full body',
   'arms': 'arms',
   'legs': 'leg',
-  'full_body': 'full body'
+  'full_body': 'full body',
+  'cardio': 'cardio',
+  'hiit': 'hiit'
 };
 
 const normalizeWorkoutTypeValue = (type) => WORKOUT_TYPE_LABELS[type] || type || '';
@@ -542,9 +693,14 @@ const GymMap = ({ isActive }) => {
     name: gym.name
   }));
   const normalizedCitySearchQuery = normalizeSearchText(citySearchQuery.trim());
-  const filteredVisibleCityGyms = normalizedCitySearchQuery
+  const filteredVisibleCityGyms = (normalizedCitySearchQuery
     ? visibleCityGyms.filter((gym) => normalizeSearchText(gym.cityLabel).includes(normalizedCitySearchQuery))
-    : visibleCityGyms;
+    : visibleCityGyms
+  ).slice().sort((firstGym, secondGym) => {
+    const citySort = sortByHungarianLabel(firstGym.cityLabel, secondGym.cityLabel);
+    if (citySort !== 0) return citySort;
+    return sortByHungarianLabel(firstGym.countyLabel, secondGym.countyLabel);
+  });
 
   useEffect(() => {
     if (!mapElementRef.current || leafletMapRef.current) return;
@@ -943,6 +1099,12 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   
   // Profil adatok
   const [profileImage, setProfileImage] = useState(null);
+  const [profileImageEditorOpen, setProfileImageEditorOpen] = useState(false);
+  const [profileImageDraft, setProfileImageDraft] = useState('');
+  const [profileImageDraftDimensions, setProfileImageDraftDimensions] = useState(null);
+  const [profileImageScale, setProfileImageScale] = useState(1);
+  const [profileImageOffset, setProfileImageOffset] = useState({ x: 0, y: 0 });
+  const [profileImageSaving, setProfileImageSaving] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const [editFormData, setEditFormData] = useState({
     fullName: '',
@@ -1052,12 +1214,14 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   
   const [userData, setUserData] = useState({});
   const [workoutData, setWorkoutData] = useState({ weeklyPlan: [], stats: {}, aiRecommendation: '', recommendedPlan: [], recommendationNote: '' });
-  const [nutritionData, setNutritionData] = useState({ todayMeals: [], dailyCalories: 0, recommendations: [], calorieTarget: 2500, recommendationDate: '', recommendationNote: '' });
+  const [nutritionData, setNutritionData] = useState({ todayMeals: [], dailyCalories: 0, recommendations: [], weeklyRecommendations: [], calorieTarget: 2500, recommendationDate: '', recommendationNote: '' });
   const [nutritionWeekData, setNutritionWeekData] = useState({ dailyTotals: [], meals: [] });
   const [weightHistory, setWeightHistory] = useState([]);
   const [nutritionSelectedDate, setNutritionSelectedDate] = useState(new Date());
+  const [nutritionRecommendationLoading, setNutritionRecommendationLoading] = useState(false);
   const [currentDayKey, setCurrentDayKey] = useState(formatLocalDate(new Date()));
   const [savingRecommendedMealKey, setSavingRecommendedMealKey] = useState('');
+  const [savingRecommendedWorkoutKey, setSavingRecommendedWorkoutKey] = useState('');
 
   const normalizedMealSearch = normalizeSearchText(mealSearchQuery.trim());
   const availableCategoryOptions = FOOD_CATEGORY_OPTIONS;
@@ -1075,12 +1239,14 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     return normalizeSearchText(food.name).includes(normalizedMealSearch);
   }).slice(0, 40);
   const calculatedMealCalories = selectedFood && parsedMealGrams !== null && parsedMealGrams > 0
-    ? Math.round((selectedFood.calories * parsedMealGrams) / 100)
+    ? Math.round((selectedFood.calories * parsedMealGrams) / (selectedFood.calorieBasisGrams || 100))
     : '';
   
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [weekWorkouts, setWeekWorkouts] = useState([]);
   const [loadingWorkouts, setLoadingWorkouts] = useState(false);
+  const profileImageInputRef = useRef(null);
+  const profileImageDragStartRef = useRef(null);
 
   const [workoutFormDetails, setWorkoutFormDetails] = useState({ name: '', type: '', day: '' });
   const [exercisesList, setExercisesList] = useState([
@@ -1163,7 +1329,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
 
       if (currentUser.id && currentUser.id !== 'demo-999') {
         loadUserData(currentUser.id, token);
-        loadDashboardData(currentUser.id, token);
+        loadDashboardData(currentUser.id, token, nutritionSelectedDate);
         loadNutritionWeek(new Date());
         loadProfileImage(currentUser.id, token);
         loadProgressPhotos(currentUser.id, token);
@@ -1209,9 +1375,10 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     } catch (error) { console.error(error); }
   };
 
-  const loadDashboardData = async (userId, token) => {
+  const loadDashboardData = async (userId, token, referenceDate = new Date()) => {
+    setNutritionRecommendationLoading(true);
     try {
-      const response = await fetch(`http://localhost:5001/api/dashboard/${userId}`, { 
+      const response = await fetch(`http://localhost:5001/api/dashboard/${userId}?date=${encodeURIComponent(formatLocalDate(referenceDate) || formatLocalDate(new Date()))}`, { 
         headers: getAuthHeaders(token)
       });
       if (response.ok) {
@@ -1225,7 +1392,11 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
           }
         }
       }
-    } catch (error) { console.error(error); }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setNutritionRecommendationLoading(false);
+    }
   };
 
   const loadProfileImage = async (userId, token) => {
@@ -1257,6 +1428,104 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
       }
     } catch (error) { console.error(error); }
   };
+
+  const persistProfileImage = async (base64Image) => {
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+
+    if (!currentUser.id || currentUser.id === 'demo-999') {
+      showToast('Demó módban nem módosíthatod a profilképet!', 'error');
+      return false;
+    }
+
+    setProfileImage(base64Image);
+    setIsProfileSaved(false);
+    localStorage.setItem(getProfileImageStorageKey(currentUser.id), base64Image);
+
+    try {
+      const response = await fetch('http://localhost:5001/api/upload-profile-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userId: currentUser.id, imageBase64: base64Image })
+      });
+
+      if (!response.ok) {
+        showToast('Hiba a kép mentésekor!', 'error');
+        return false;
+      }
+
+      showToast('Profilkép sikeresen frissítve!', 'success');
+      return true;
+    } catch (error) {
+      console.error('Profilkép mentési hiba:', error);
+      showToast('Hálózati hiba!', 'error');
+      return false;
+    }
+  };
+
+  const closeProfileImageEditor = () => {
+    setProfileImageEditorOpen(false);
+    setProfileImageDraft('');
+    setProfileImageDraftDimensions(null);
+    setProfileImageScale(1);
+    setProfileImageOffset({ x: 0, y: 0 });
+    setProfileImageSaving(false);
+    profileImageDragStartRef.current = null;
+  };
+
+  const openProfileImageEditor = async (imageSource) => {
+    if (!imageSource) return;
+
+    try {
+      const dimensions = await loadImageDimensions(imageSource);
+      setProfileImageDraft(imageSource);
+      setProfileImageDraftDimensions(dimensions);
+      setProfileImageScale(1);
+      setProfileImageOffset({ x: 0, y: 0 });
+      setProfileImageEditorOpen(true);
+    } catch (error) {
+      console.error('Profilkép előnézeti hiba:', error);
+      showToast('A kép megnyitása nem sikerült.', 'error');
+    }
+  };
+
+  const updateProfileImageTransform = (nextScale, nextOffset) => {
+    const clamped = clampProfileEditorOffsets(
+      nextOffset?.x ?? profileImageOffset.x,
+      nextOffset?.y ?? profileImageOffset.y,
+      profileImageDraftDimensions,
+      nextScale
+    );
+
+    setProfileImageScale(nextScale);
+    setProfileImageOffset({ x: clamped.offsetX, y: clamped.offsetY });
+  };
+
+  useEffect(() => {
+    if (!profileImageEditorOpen) return undefined;
+
+    const handlePointerMove = (event) => {
+      const dragStart = profileImageDragStartRef.current;
+      if (!dragStart) return;
+
+      updateProfileImageTransform(profileImageScale, {
+        x: dragStart.originX + (event.clientX - dragStart.startX),
+        y: dragStart.originY + (event.clientY - dragStart.startY)
+      });
+    };
+
+    const handlePointerUp = () => {
+      profileImageDragStartRef.current = null;
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [profileImageEditorOpen, profileImageScale, profileImageDraftDimensions, profileImageOffset.x, profileImageOffset.y]);
 
   const loadNutritionWeek = async (date) => {
     const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
@@ -1854,41 +2123,67 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     }
   }, [currentSection, nutritionSelectedDate, nutritionWeekData.dailyTotals.length]);
 
+  useEffect(() => {
+    if (currentSection !== 'nutrition') return;
+
+    const token = localStorage.getItem('powerplan_token');
+    const savedUser = localStorage.getItem('powerplan_current_user');
+    const currentUser = savedUser ? JSON.parse(savedUser) : null;
+
+    if (!currentUser?.id || currentUser.id === 'demo-999' || !token) {
+      return;
+    }
+
+    loadDashboardData(currentUser.id, token, nutritionSelectedDate);
+  }, [currentSection, nutritionSelectedDate]);
+
   // Profilkép feltöltés (adatbázisba)
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
-    const token = localStorage.getItem('powerplan_token');
-    if (!currentUser.id || currentUser.id === 'demo-999') {
-      showToast('Demó módban nem módosíthatod a profilképet!', 'error');
-      return;
-    }
-
     const reader = new FileReader();
     reader.onloadend = async () => {
-      const base64 = reader.result;
-      setProfileImage(base64);
-      setIsProfileSaved(false);
-      localStorage.setItem(getProfileImageStorageKey(currentUser.id), base64);
-      
-      try {
-        const response = await fetch('http://localhost:5001/api/upload-profile-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ userId: currentUser.id, imageBase64: base64 })
-        });
-        if (response.ok) {
-          showToast('Profilkép sikeresen frissítve!', 'success');
-        } else {
-          showToast('Hiba a kép mentésekor!', 'error');
-        }
-      } catch (error) {
-        showToast('Hálózati hiba!', 'error');
-      }
+      await openProfileImageEditor(String(reader.result || ''));
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleProfileImagePointerDown = (event) => {
+    if (!profileImageDraft) return;
+
+    profileImageDragStartRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: profileImageOffset.x,
+      originY: profileImageOffset.y
+    };
+  };
+
+  const handleProfileImageSave = async () => {
+    if (!profileImageDraft || !profileImageDraftDimensions) return;
+
+    setProfileImageSaving(true);
+    try {
+      const renderedImage = await renderProfileImageDataUrl(
+        profileImageDraft,
+        profileImageDraftDimensions,
+        profileImageScale,
+        profileImageOffset.x,
+        profileImageOffset.y
+      );
+
+      const wasSaved = await persistProfileImage(renderedImage);
+      if (wasSaved) {
+        closeProfileImageEditor();
+      }
+    } catch (error) {
+      console.error('Profilkép renderelési hiba:', error);
+      showToast('Nem sikerült elmenteni a képet.', 'error');
+    } finally {
+      setProfileImageSaving(false);
+    }
   };
 
   // Fejlődés fotó feltöltés
@@ -2214,6 +2509,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     }
 
     setSelectedFood(selectedOption);
+    setMealGrams(String(selectedOption.calorieBasisGrams || 100));
   };
 
   const handleMealSubmit = async (e) => {
@@ -2285,10 +2581,10 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
       return;
     }
 
-    const targetDate = nutritionData.recommendationDate
-      ? new Date(`${nutritionData.recommendationDate}T12:00:00`)
+    const targetDate = meal?.recommendationDate
+      ? new Date(`${meal.recommendationDate}T12:00:00`)
       : new Date(nutritionSelectedDate);
-    const requestKey = `${mealType}-${foodName}`;
+    const requestKey = `${meal?.recommendationDate || nutritionData.recommendationDate}-${mealType}-${foodName}`;
 
     setSavingRecommendedMealKey(requestKey);
 
@@ -2321,7 +2617,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
 
       setNutritionSelectedDate(targetDate);
       showToast(`${foodName} hozzáadva az étkezéseidhez.`, 'success');
-      loadDashboardData(currentUser.id, token);
+      loadDashboardData(currentUser.id, token, targetDate);
       loadNutritionWeek(targetDate);
     } catch (error) {
       console.error('Recommended meal save error:', error);
@@ -2329,6 +2625,36 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
     } finally {
       setSavingRecommendedMealKey('');
     }
+  };
+
+  const setNutritionRecommendationDate = (nextDateInput) => {
+    const nextDate = nextDateInput instanceof Date ? new Date(nextDateInput) : new Date(nextDateInput);
+    if (Number.isNaN(nextDate.getTime())) {
+      return;
+    }
+
+    setNutritionSelectedDate(nextDate);
+    loadNutritionWeek(nextDate);
+
+    const token = localStorage.getItem('powerplan_token');
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    if (currentSection === 'nutrition' && currentUser?.id && currentUser.id !== 'demo-999' && token) {
+      loadDashboardData(currentUser.id, token, nextDate);
+    }
+  };
+
+  const shiftNutritionRecommendationWeek = (weekOffset) => {
+    const currentWeekStart = getStartOfWeek(nutritionSelectedDate);
+    const currentDay = new Date(nutritionSelectedDate);
+    const weekdayIndex = currentDay.getDay() === 0 ? 6 : currentDay.getDay() - 1;
+    const nextDate = new Date(currentWeekStart);
+    nextDate.setDate(currentWeekStart.getDate() + (weekOffset * 7) + weekdayIndex);
+    nextDate.setHours(12, 0, 0, 0);
+    setNutritionRecommendationDate(nextDate);
+  };
+
+  const goToCurrentNutritionRecommendationWeek = () => {
+    setNutritionRecommendationDate(new Date());
   };
 
   const openDeleteMealModal = (meal) => {
@@ -2406,13 +2732,42 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
         closeDeleteWorkoutModal();
         closeModal();
         closeWorkoutDetailsModal();
-        loadDashboardData(currentUser.id, token);
+        loadDashboardData(currentUser.id, token, nutritionSelectedDate);
         loadWeekWorkouts(selectedDate);
       } else {
         showToast('Hiba a törlés során.', 'error');
       }
     } catch (error) {
       showToast('Hálózati hiba!', 'error');
+    }
+  };
+
+  const undoRecommendedWorkoutForToday = async (workoutId) => {
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+
+    if (!currentUser.id || currentUser.id === 'demo-999') {
+      showToast('Demó módban nem módosíthatod ezt az edzést.', 'error');
+      return;
+    }
+
+    try {
+      const response = await fetch(`http://localhost:5001/api/workouts/${workoutId}?userId=${currentUser.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!response.ok) {
+        showToast('Nem sikerült visszavonni a generált edzést.', 'error');
+        return;
+      }
+
+      showToast('A generált edzés visszavonva.', 'success');
+      loadDashboardData(currentUser.id, token, nutritionSelectedDate);
+      loadWeekWorkouts(selectedDate);
+    } catch (error) {
+      console.error('Recommended workout undo error:', error);
+      showToast('Hálózati hiba a visszavonáskor.', 'error');
     }
   };
 
@@ -2462,6 +2817,70 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
       }
       return ex;
     }));
+  };
+
+  const saveRecommendedWorkoutForToday = async (workout) => {
+    const currentUser = JSON.parse(localStorage.getItem('powerplan_current_user') || '{}');
+    const token = localStorage.getItem('powerplan_token');
+    const requestKey = `${workout.day}-${workout.title}`;
+
+    if (!currentUser.id || currentUser.id === 'demo-999') {
+      showToast('Demó módban a mintaedzésterv nem menthető.', 'error');
+      return;
+    }
+
+    setSavingRecommendedWorkoutKey(requestKey);
+
+    try {
+      const today = new Date();
+      const payload = {
+        userId: currentUser.id,
+        name: `${workout.title} (minta)`,
+        workoutType: serializeWorkoutTypeValue(workout.workoutType),
+        scheduledDay: getTodayWorkoutDayKey(today),
+        exercises: (workout.exercises || []).map((exercise, index) => {
+          const exerciseName = typeof exercise === 'string' ? exercise : exercise.name;
+          const prescription = typeof exercise === 'string' ? '' : exercise.prescription;
+
+          return {
+            id: Date.now() + index,
+            muscleGroup: getRecommendedExerciseMuscleGroup(exerciseName, workout.workoutType),
+            name: exerciseName,
+            sortOrder: index,
+            sets: getSetsFromPrescription(prescription, workout.workoutType)
+          };
+        })
+      };
+
+      const response = await fetch('http://localhost:5001/api/workouts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        let errorMessage = 'Nem sikerült a mintaedzéstervet a mai napra menteni.';
+        try {
+          const errorData = await response.json();
+          if (errorData?.error) {
+            errorMessage = errorData.error;
+          }
+        } catch {
+        }
+        showToast(errorMessage, 'error');
+        return;
+      }
+
+      setSelectedDate(today);
+      showToast('A mintaedzésterv a mai napra bekerült az edzéseid közé.', 'success');
+      loadDashboardData(currentUser.id, token, nutritionSelectedDate);
+      loadWeekWorkouts(today);
+    } catch (error) {
+      console.error('Recommended workout save error:', error);
+      showToast('Hálózati hiba az ajánlott edzés mentésekor.', 'error');
+    } finally {
+      setSavingRecommendedWorkoutKey('');
+    }
   };
 
   const handleWorkoutSubmit = async (e) => {
@@ -2530,8 +2949,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   };
 
   const getWorkoutsForDay = (dayOfWeek) => {
-    const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    const targetDay = dayNames[dayOfWeek];
+    const targetDay = WORKOUT_DAY_KEYS[dayOfWeek];
     return weekWorkouts.filter(w => w.scheduled_day === targetDay);
   };
 
@@ -2890,11 +3308,42 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   const calorieProgress = (totalCaloriesToday / calorieGoal) * 100;
   const isViewingTodayNutrition = isSameDay(nutritionSelectedDate, new Date());
   const selectedNutritionDateKey = formatLocalDate(nutritionSelectedDate);
+  const weeklyNutritionRecommendations = nutritionData.weeklyRecommendations || [];
+  const completedRecommendedWorkoutMap = weekWorkouts
+    .filter((workout) => (workout.name || '').includes('(minta)'))
+    .reduce((accumulator, workout) => {
+      const key = `${serializeWorkoutTypeValue(workout.workout_type)}::${normalizeSearchText(stripRecommendedWorkoutSuffix(workout.name))}`;
+      accumulator[key] = workout;
+      return accumulator;
+    }, {});
   const selectedNutritionMeals = (nutritionWeekData.meals || []).filter((meal) => meal.consumedDate === selectedNutritionDateKey);
   const selectedNutritionCalories = selectedNutritionMeals.reduce((sum, meal) => sum + (meal.calories || 0), 0);
   const displayedCalories = isViewingTodayNutrition ? totalCaloriesToday : selectedNutritionCalories;
   const displayedCalorieProgress = (displayedCalories / calorieGoal) * 100;
   const nutritionWeekStart = getStartOfWeek(nutritionSelectedDate);
+  const nutritionRecommendationPreviewDays = Array.from({ length: 7 }, (_, index) => {
+    const currentDate = new Date(nutritionWeekStart);
+    currentDate.setDate(nutritionWeekStart.getDate() + index);
+    const currentDateKey = formatLocalDate(currentDate);
+    const matchingRecommendation = weeklyNutritionRecommendations.find((day) => day.recommendationDate === currentDateKey);
+
+    return matchingRecommendation || {
+      recommendationDate: currentDateKey,
+      recommendationDateLabel: formatRecommendationCardDateLabel(currentDate),
+      calorieTarget: nutritionData.calorieTarget || 0,
+      recommendations: [],
+      recommendationNote: nutritionRecommendationLoading ? 'A kiválasztott hét ajánlásai betöltés alatt vannak.' : ''
+    };
+  });
+  const activeRecommendationDay = nutritionRecommendationPreviewDays.find((day) => day.recommendationDate === selectedNutritionDateKey)
+    || nutritionRecommendationPreviewDays[0]
+    || {
+      recommendationDate: selectedNutritionDateKey,
+      recommendationDateLabel: formatHungarianLongDate(nutritionSelectedDate),
+      calorieTarget: nutritionData.calorieTarget,
+      recommendations: [],
+      recommendationNote: ''
+    };
   const nutritionDailyTotals = Array.from({ length: 7 }, (_, index) => {
     const currentDate = new Date(nutritionWeekStart);
     currentDate.setDate(nutritionWeekStart.getDate() + index);
@@ -2922,6 +3371,11 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
   );
   const remainingCalories = Math.max(calorieGoal - displayedCalories, 0);
   const radarMaxCalories = Math.max(calorieGoal, ...nutritionDailyTotals.map((day) => day.totalCalories), 500);
+  const profileImageEditorMetrics = profileImageDraftDimensions ? getProfileEditorMetrics(profileImageDraftDimensions, profileImageScale) : null;
+  const profileImageOffsetLimits = {
+    x: Math.ceil(profileImageEditorMetrics?.maxOffsetX || 0),
+    y: Math.ceil(profileImageEditorMetrics?.maxOffsetY || 0)
+  };
 
   const nutritionChartData = {
     labels: nutritionDailyTotals.map((day) => day.label),
@@ -3093,7 +3547,7 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
             <div className="stat-card">
               <div className="stat-icon"><i className="fas fa-weight"></i></div>
               <div className="stat-info">
-                <h3>TESTSULY</h3>
+                <h3>TESTSÚLY</h3>
                 <div className="stat-number">{userData.personalInfo?.weight || '-'} kg</div>
               </div>
             </div>
@@ -3116,10 +3570,15 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
               )}
               <div className="week-workouts workout-recommendation-grid">
                 {(workoutData.recommendedPlan || []).map((workout, index) => (
-                  <div key={`${workout.day}-${index}`} className="day-workout-card">
+                  <div
+                    key={`${workout.day}-${index}`}
+                    className={`day-workout-card ${completedRecommendedWorkoutMap[`${serializeWorkoutTypeValue(workout.workoutType)}::${normalizeSearchText(stripRecommendedWorkoutSuffix(workout.title))}`] ? 'completed-recommended-workout' : ''}`}
+                  >
                     <div className="day-workout-header">
                       <h3>{workout.dayLabel}</h3>
-                      <span className="workout-count">Minta</span>
+                      <span className={`workout-count ${completedRecommendedWorkoutMap[`${serializeWorkoutTypeValue(workout.workoutType)}::${normalizeSearchText(stripRecommendedWorkoutSuffix(workout.title))}`] ? 'completed' : ''}`}>
+                        {completedRecommendedWorkoutMap[`${serializeWorkoutTypeValue(workout.workoutType)}::${normalizeSearchText(stripRecommendedWorkoutSuffix(workout.title))}`] ? 'Teljesítve' : 'Minta'}
+                      </span>
                     </div>
                     <div className="workout-item">
                       <div className="workout-name">{workout.title}</div>
@@ -3134,6 +3593,30 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                           </span>
                         ))}
                       </div>
+                      {completedRecommendedWorkoutMap[`${serializeWorkoutTypeValue(workout.workoutType)}::${normalizeSearchText(stripRecommendedWorkoutSuffix(workout.title))}`] ? (
+                        <div className="recommended-workout-complete-state-wrap">
+                          <div className="recommended-workout-complete-state">
+                            <i className="fas fa-circle-check"></i> Teljesítve
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm recommended-workout-undo"
+                            onClick={() => undoRecommendedWorkoutForToday(completedRecommendedWorkoutMap[`${serializeWorkoutTypeValue(workout.workoutType)}::${normalizeSearchText(stripRecommendedWorkoutSuffix(workout.title))}`].id)}
+                          >
+                            Visszavonás
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-primary recommended-workout-action"
+                          onClick={() => saveRecommendedWorkoutForToday(workout)}
+                          disabled={savingRecommendedWorkoutKey === `${workout.day}-${workout.title}`}
+                        >
+                          <i className="fas fa-check-double"></i>
+                          {savingRecommendedWorkoutKey === `${workout.day}-${workout.title}` ? ' Mentés...' : ' Teljesítem ma'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -3282,23 +3765,41 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
             <div className="nutrition-recommendations-panel">
               <div className="nutrition-top-row nutrition-recommendation-row">
                 <h3>Ajánlott napi étrend</h3>
-                <span className="nutrition-recommendation-date">{nutritionData.recommendationDateLabel || formatHungarianLongDate(new Date())}</span>
+                <span className="nutrition-recommendation-date">{formatHungarianLongDate(nutritionSelectedDate)}</span>
               </div>
-              {nutritionData.recommendationNote && (
-                <p className="nutrition-recommendation-note">{nutritionData.recommendationNote}</p>
+              {activeRecommendationDay.recommendationNote && (
+                <p className="nutrition-recommendation-note">{activeRecommendationDay.recommendationNote}</p>
               )}
+              <div className="week-nav nutrition-week-nav">
+                <button type="button" className="nav-btn" onClick={() => shiftNutritionRecommendationWeek(-1)}><i className="fas fa-chevron-left"></i> Előző hét</button>
+                <button type="button" className="nav-btn today-btn" onClick={goToCurrentNutritionRecommendationWeek}><i className="fas fa-calendar-day"></i> Ma</button>
+                <button type="button" className="nav-btn" onClick={() => shiftNutritionRecommendationWeek(1)}>Következő hét <i className="fas fa-chevron-right"></i></button>
+              </div>
+              <div className="nutrition-week-preview-row">
+                {nutritionRecommendationPreviewDays.map((dayPlan) => (
+                  <button
+                    key={dayPlan.recommendationDate}
+                    type="button"
+                    className={`nutrition-week-preview-card ${selectedNutritionDateKey === dayPlan.recommendationDate ? 'active' : ''}`}
+                    onClick={() => setNutritionRecommendationDate(new Date(`${dayPlan.recommendationDate}T12:00:00`))}
+                  >
+                    <strong>{dayPlan.recommendationDateLabel}</strong>
+                    <span>{dayPlan.calorieTarget || 0} kcal</span>
+                  </button>
+                ))}
+              </div>
               <div className="nutrition-summary-grid nutrition-recommendation-summary">
                 <div className="nutrition-summary-card">
                   <span className="nutrition-summary-label">Ajánlott napi keret</span>
-                  <strong>{nutritionData.calorieTarget || 0} kcal</strong>
+                  <strong>{activeRecommendationDay.calorieTarget || 0} kcal</strong>
                 </div>
                 <div className="nutrition-summary-card">
                   <span className="nutrition-summary-label">Ajánlott étkezések</span>
-                  <strong>{nutritionData.recommendations?.length || 0} db</strong>
+                  <strong>{activeRecommendationDay.recommendations?.length || 0} db</strong>
                 </div>
               </div>
               <div className="meal-plan nutrition-meal-plan nutrition-recommendation-plan">
-                {(nutritionData.recommendations || []).map((meal, i) => (
+                {(activeRecommendationDay.recommendations || []).map((meal, i) => (
                   <div key={`${meal.meal_type}-${i}`} className="meal-card">
                     <div className="meal-card-header">
                       <span className="meal-time">{meal.mealTypeLabel || meal.meal_type}</span>
@@ -3316,14 +3817,14 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                     <button
                       type="button"
                       className="btn btn-primary btn-sm recommended-meal-action"
-                      onClick={() => handleAddRecommendedMeal(meal)}
-                      disabled={savingRecommendedMealKey === `${meal.meal_type}-${meal.name}`}
+                      onClick={() => handleAddRecommendedMeal({ ...meal, recommendationDate: activeRecommendationDay.recommendationDate })}
+                      disabled={savingRecommendedMealKey === `${activeRecommendationDay.recommendationDate}-${meal.meal_type}-${meal.name}`}
                     >
-                      {savingRecommendedMealKey === `${meal.meal_type}-${meal.name}` ? 'Mentés...' : 'Beírás étkezésként'}
+                      {savingRecommendedMealKey === `${activeRecommendationDay.recommendationDate}-${meal.meal_type}-${meal.name}` ? 'Mentés...' : 'Beírás étkezésként'}
                     </button>
                   </div>
                 ))}
-                {(nutritionData.recommendations || []).length === 0 && (
+                {(activeRecommendationDay.recommendations || []).length === 0 && (
                   <p className="no-data">Nincs elérhető étrendi ajánlás ehhez a profilhoz.</p>
                 )}
               </div>
@@ -3840,10 +4341,17 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                   <div className="profile-pic-large">
                     {profileImage ? <img src={profileImage} alt="Profil" /> : <i className="fas fa-user"></i>}
                   </div>
-                  <input type="file" accept="image/*" onChange={handleImageUpload} id="profile-image-input" style={{ display: 'none' }} />
-                  <button className="btn btn-secondary" onClick={() => document.getElementById('profile-image-input').click()}>
-                    <i className="fas fa-upload"></i> Profilkép
-                  </button>
+                  <input ref={profileImageInputRef} type="file" accept="image/*" onChange={handleImageUpload} id="profile-image-input" style={{ display: 'none' }} />
+                  <div className="profile-image-action-row">
+                    <button className="btn btn-secondary" type="button" onClick={() => profileImageInputRef.current?.click()}>
+                      <i className="fas fa-upload"></i> Profilkép
+                    </button>
+                    {profileImage && (
+                      <button className="btn btn-secondary" type="button" onClick={() => openProfileImageEditor(profileImage)}>
+                        <i className="fas fa-expand"></i> Igazítás
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="form-group">
                   <label>Teljes név</label>
@@ -4031,11 +4539,11 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                     onClick={() => handleFoodSelection(food.value)}
                   >
                     <span className="food-search-result-name">{food.name}</span>
-                    <span className="food-search-result-meta">{food.category} • {food.calories} kcal / 100 g</span>
+                    <span className="food-search-result-meta">{food.category} • {food.calories} kcal / {food.calorieBasisLabel || '100 g'}</span>
                   </button>
                 ))}
               </div>
-              <small className="food-picker-help">Az értékek 100 g-ra vonatkoznak, kivéve ahol az adag külön jelölve van.</small>
+              <small className="food-picker-help">Az értékek az itt jelzett alapmennyiségre vonatkoznak. Ha az ételnél adag vagy kanál szerepel, a kalkuláció azt veszi alapul.</small>
             </div>
 
             <div className="form-group">
@@ -4052,6 +4560,9 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                 onWheel={(e) => e.currentTarget.blur()}
                 onChange={(e) => setMealGrams(e.target.value)}
               />
+              {selectedFood && (
+                <small className="food-picker-help">Kalóriaalap: {selectedFood.calorieBasisLabel || '100 g'}.</small>
+              )}
             </div>
 
             <div className="form-group">
@@ -4171,7 +4682,15 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                               <th>#</th>
                               <th>Súly</th>
                               <th>Ismétlés</th>
-                              <th>RPE</th>
+                              <th>
+                                <span className="table-heading-with-tooltip">
+                                  RPE
+                                  <span className="info-tooltip" tabIndex="0">
+                                    <i className="fas fa-circle-info"></i>
+                                    <span className="info-tooltip-bubble">{RPE_TOOLTIP_TEXT}</span>
+                                  </span>
+                                </span>
+                              </th>
                             </tr>
                           </thead>
                           <tbody>
@@ -4248,6 +4767,8 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                   <option value="lower">lower</option>
                   <option value="full body">full body</option>
                   <option value="arms">arms</option>
+                  <option value="cardio">cardio</option>
+                  <option value="hiit">hiit</option>
                 </select>
               </div>
             </div>
@@ -4292,6 +4813,13 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
                     </div>
                   </div>
                   
+                  <div className="rpe-helper-row">
+                    <span className="rpe-helper-label">RPE magyarázat</span>
+                    <span className="info-tooltip" tabIndex="0">
+                      <i className="fas fa-circle-info"></i>
+                      <span className="info-tooltip-bubble">{RPE_TOOLTIP_TEXT}</span>
+                    </span>
+                  </div>
                   <div className="sets-container">
                     {exercise.sets.map((set, setIndex) => (
                       <div key={setIndex} className="set-row">
@@ -4338,6 +4866,83 @@ const Dashboard = ({ navigateTo, handleLogout, requestLogout, darkMode, setDarkM
               <button type="submit" className="btn btn-primary">{editingWorkoutId ? 'Mentés' : 'Edzés mentése'}</button>
             </div>
           </form>
+        </div>
+      </div>
+
+      <div className={`modal ${profileImageEditorOpen ? 'active' : ''}`} onClick={(event) => {
+        if (event.target.className === 'modal active') {
+          closeProfileImageEditor();
+        }
+      }}>
+        <div className="modal-content profile-image-editor-modal">
+          <div className="modal-header">
+            <h2><i className="fas fa-image"></i> Profilkép igazítása</h2>
+            <button className="modal-close" onClick={closeProfileImageEditor}><i className="fas fa-times"></i></button>
+          </div>
+          <p className="profile-image-editor-help">Húzd az előnézetet az egérrel, és használd a csúszkákat a nagyításhoz, kicsinyítéshez és finom igazításhoz.</p>
+          <div className="profile-image-editor-stage">
+            <div className="profile-image-editor-preview" onPointerDown={handleProfileImagePointerDown}>
+              {profileImageDraft && profileImageDraftDimensions && (
+                <img
+                  src={profileImageDraft}
+                  alt="Profilkép előnézet"
+                  className="profile-image-editor-preview-image"
+                  style={getProfileEditorPreviewStyle(profileImageDraftDimensions, profileImageScale, profileImageOffset.x, profileImageOffset.y)}
+                  draggable={false}
+                />
+              )}
+            </div>
+          </div>
+          <div className="profile-image-editor-controls">
+            <div className="form-group">
+              <label htmlFor="profile-image-scale">Nagyítás: {Math.round(profileImageScale * 100)}%</label>
+              <input
+                className="profile-image-editor-range"
+                id="profile-image-scale"
+                type="range"
+                min="1"
+                max="2.6"
+                step="0.05"
+                value={profileImageScale}
+                onChange={(event) => updateProfileImageTransform(Number(event.target.value), profileImageOffset)}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="profile-image-offset-x">Vízszintes mozgatás: {Math.round(profileImageOffset.x)} px</label>
+              <input
+                className="profile-image-editor-range"
+                id="profile-image-offset-x"
+                type="range"
+                min={-profileImageOffsetLimits.x}
+                max={profileImageOffsetLimits.x}
+                step="1"
+                value={profileImageOffset.x}
+                disabled={profileImageOffsetLimits.x === 0}
+                onChange={(event) => updateProfileImageTransform(profileImageScale, { x: Number(event.target.value), y: profileImageOffset.y })}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="profile-image-offset-y">Függőleges mozgatás: {Math.round(profileImageOffset.y)} px</label>
+              <input
+                className="profile-image-editor-range"
+                id="profile-image-offset-y"
+                type="range"
+                min={-profileImageOffsetLimits.y}
+                max={profileImageOffsetLimits.y}
+                step="1"
+                value={profileImageOffset.y}
+                disabled={profileImageOffsetLimits.y === 0}
+                onChange={(event) => updateProfileImageTransform(profileImageScale, { x: profileImageOffset.x, y: Number(event.target.value) })}
+              />
+            </div>
+          </div>
+          <div className="modal-buttons">
+            <button type="button" className="btn btn-secondary" onClick={() => updateProfileImageTransform(1, { x: 0, y: 0 })}>Alaphelyzet</button>
+            <button type="button" className="btn btn-secondary" onClick={closeProfileImageEditor}>Mégse</button>
+            <button type="button" className="btn btn-primary" onClick={handleProfileImageSave} disabled={profileImageSaving}>
+              <i className="fas fa-save"></i> {profileImageSaving ? 'Mentés...' : 'Profilkép mentése'}
+            </button>
+          </div>
         </div>
       </div>
 

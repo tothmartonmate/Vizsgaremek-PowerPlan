@@ -56,8 +56,8 @@ export async function runSuite(runCase, sharedDriver) {
       assert.ok(widthStyle.includes('width'));
     });
 
-    await runCase('A TESTSULY statisztika felirata látszik', async () => {
-      assert.ok(await waitForVisible(driver, By.xpath("//div[contains(@class,'stat-info')][.//h3[normalize-space()='TESTSULY']]")));
+    await runCase('A TESTSÚLY statisztika felirata látszik', async () => {
+      assert.ok(await waitForVisible(driver, By.xpath("//div[contains(@class,'stat-info')][.//h3[normalize-space()='TESTSÚLY']]") ));
     });
 
     await runCase('Az oldalsáv felhasználó blokkja nem üres', async () => {

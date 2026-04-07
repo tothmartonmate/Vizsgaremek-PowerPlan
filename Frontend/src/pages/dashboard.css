@@ -936,6 +936,48 @@ body.dark-mode .theme-toggle-btn:hover {
   margin-bottom: 16px;
 }
 
+.nutrition-week-nav {
+  justify-content: flex-start;
+  margin-bottom: 18px;
+}
+
+.nutrition-week-preview-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.nutrition-week-preview-card {
+  border: 1px solid rgba(17, 138, 178, 0.16);
+  background: rgba(17, 138, 178, 0.08);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 12px 14px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.nutrition-week-preview-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(17, 138, 178, 0.14);
+}
+
+.nutrition-week-preview-card.active {
+  background: linear-gradient(135deg, #0f766e, #118ab2);
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.nutrition-week-preview-card strong,
+.nutrition-week-preview-card span {
+  color: inherit;
+}
+
 .nutrition-chart-card {
   background: var(--light);
   border-radius: 16px;
@@ -1624,6 +1666,15 @@ body.dark-mode .theme-toggle-btn:hover {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  background: linear-gradient(135deg, #0f766e, #118ab2);
+  border: none;
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(17, 138, 178, 0.22);
+}
+
+.gym-city-open-btn:hover {
+  background: linear-gradient(135deg, #0b5d57, #0e7490);
+  color: #ffffff;
 }
 
 .gym-city-empty-state {
@@ -1771,6 +1822,13 @@ body.dark-mode .theme-toggle-btn:hover {
   margin-bottom: 20px;
 }
 
+.profile-image-action-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .profile-pic-large {
   width: 120px;
   height: 120px;
@@ -1821,6 +1879,60 @@ body.dark-mode .theme-toggle-btn:hover {
 .profile-password-title {
   margin-bottom: 6px;
   color: var(--primary);
+}
+
+.profile-image-editor-modal {
+  max-width: 620px;
+}
+
+.profile-image-editor-help {
+  margin: 0 0 16px;
+  color: var(--gray);
+}
+
+.profile-image-editor-stage {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
+.profile-image-editor-preview {
+  position: relative;
+  width: 320px;
+  height: 320px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.55), rgba(230, 57, 70, 0.16));
+  border: 4px solid rgba(230, 57, 70, 0.14);
+  cursor: grab;
+  touch-action: none;
+}
+
+.profile-image-editor-preview:active {
+  cursor: grabbing;
+}
+
+.profile-image-editor-preview-image {
+  position: absolute;
+  user-select: none;
+  -webkit-user-drag: none;
+  max-width: none;
+}
+
+.profile-image-editor-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.profile-image-editor-range {
+  width: 100%;
+  accent-color: #118ab2;
+}
+
+.profile-image-editor-range:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .profile-password-help {
@@ -2615,6 +2727,56 @@ hr {
   color: white;
 }
 
+.recommended-workout-action {
+  width: 100%;
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.recommended-workout-action:disabled {
+  opacity: 0.75;
+  cursor: wait;
+}
+
+.recommended-workout-complete-state {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(42, 157, 143, 0.14);
+  color: #1f7a68;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.recommended-workout-complete-state-wrap {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recommended-workout-undo {
+  width: 100%;
+  justify-content: center;
+}
+
+.workout-count.completed {
+  background: rgba(42, 157, 143, 0.16);
+  color: #1f7a68;
+}
+
+.completed-recommended-workout {
+  border: 1px solid rgba(42, 157, 143, 0.18);
+  box-shadow: 0 10px 26px rgba(42, 157, 143, 0.1);
+}
+
 /* Edzés részletek modal */
 .workout-details-modal {
   max-width: 700px;
@@ -2705,6 +2867,60 @@ hr {
 
 .sets-table tr:hover {
   background: rgba(0,0,0,0.02);
+}
+
+.table-heading-with-tooltip,
+.rpe-helper-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rpe-helper-row {
+  margin-bottom: 10px;
+  color: var(--gray);
+  font-size: 0.9rem;
+}
+
+.rpe-helper-label {
+  font-weight: 600;
+}
+
+.info-tooltip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(17, 138, 178, 0.12);
+  color: #118ab2;
+  cursor: help;
+}
+
+.info-tooltip-bubble {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  width: min(280px, 72vw);
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #123524;
+  color: #ffffff;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+  z-index: 30;
+}
+
+.info-tooltip:hover .info-tooltip-bubble,
+.info-tooltip:focus-visible .info-tooltip-bubble {
+  opacity: 1;
 }
 
 /* Sötét módban a modal reszletek */
