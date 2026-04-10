@@ -5,7 +5,7 @@ function TermsPage({ navigateTo }) {
   return (
     <div className="legal-page">
       <div className="legal-shell">
-        <a href="#" className="legal-back-link" onClick={(e) => { e.preventDefault(); navigateTo('regisztracio'); }}>
+        <a href="#" className="legal-back-link" onClick={(e) => { e.preventDefault(); navigateTo('registration'); }}>
           <i className="fas fa-arrow-left"></i> Vissza a regisztrációhoz
         </a>
         <div className="legal-header">

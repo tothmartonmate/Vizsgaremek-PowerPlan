@@ -10,6 +10,21 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 
+app.get('/', (req, res) => {
+    res.json({
+        ok: true,
+        message: 'PowerPlan backend API is running.',
+        health: '/api/health'
+    });
+});
+
+app.get('/api/health', (req, res) => {
+    res.json({
+        ok: true,
+        service: 'powerplan-backend'
+    });
+});
+
 const DB_RETRY_DELAY_MS = 5000;
 const DB_MAX_RETRIES = 30;
 const DEFAULT_NUTRITION_GOAL = 'fitness';
@@ -374,7 +389,7 @@ const pickDailyVariedMeal = ({ mealType, userId, goal, dietTypes, allergies, dat
     const absoluteDayNumber = getAbsoluteDayNumber(targetDate);
     const userSeed = Number(userId || 0) * 17;
     const mealTypeSeed = String(mealType || '').split('').reduce((sum, character, index) => sum + (character.charCodeAt(0) * (index + 1)), 0);
-    const mealIndex = Math.abs(absoluteDayNumber + userSeed + mealTypeSeed) % pool.length;
+    const mealIndex = Math.abs((absoluteDayNumber * 37) + userSeed + mealTypeSeed) % pool.length;
     return pool[mealIndex];
 };
 

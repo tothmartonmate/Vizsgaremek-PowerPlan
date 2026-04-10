@@ -244,5 +244,30 @@ describe('server.js nutrition helpers', () => {
                 expect(mondayMeals[index].name).not.toBe(meal.name);
             });
         });
+
+        it('does not repeat the same weekday meal set in the following week', () => {
+            const currentWeek = helpers.buildWeeklyRecommendations({
+                userId: 18,
+                goal: 'fitness',
+                weightKg: 76,
+                dietTypes: '["balanced"]',
+                allergies: '',
+                wantsDietRecommendations: 'yes',
+                startDate: '2026-04-07'
+            });
+            const nextWeek = helpers.buildWeeklyRecommendations({
+                userId: 18,
+                goal: 'fitness',
+                weightKg: 76,
+                dietTypes: '["balanced"]',
+                allergies: '',
+                wantsDietRecommendations: 'yes',
+                startDate: '2026-04-14'
+            });
+
+            currentWeek[0].recommendations.forEach((meal, index) => {
+                expect(nextWeek[0].recommendations[index].name).not.toBe(meal.name);
+            });
+        });
     });
 });

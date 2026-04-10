@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import reactLogo from './assets/react.svg';
 import viteLogo from '/vite.svg';
 import './App.css';
-import Regisztracio from './pages/regisztracio';
-import Bejelentkezes from './pages/bejelentkezes';
+import Registration from './pages/registration';
+import Login from './pages/login';
 import Dashboard from './pages/dashboard';
 import Questionnaire from './pages/questionnarie';
 import TermsPage from './pages/TermsPage';
@@ -53,7 +53,8 @@ function App() {
   }, [darkMode]);
 
   const navigateTo = (page) => {
-    setCurrentPage(page);
+    const normalizedPage = page === 'regisztracio' ? 'registration' : page === 'bejelentkezes' ? 'login' : page;
+    setCurrentPage(normalizedPage);
     window.scrollTo(0, 0);
   };
 
@@ -227,9 +228,9 @@ function App() {
       <section className="hero">
         <div className="hero-content">
           <h1>Éld át a változást!</h1>
-          <p>A Power Plan edzőtermi alkalmazás segít elérni edzés céljaidat. Kövesd fejlődésedet, kapj személyre szabott edzés-terveket és társulj közösségünkhöz!</p>
+          <p>A Power Plan edzőtermi alkalmazás segít elérni edzés céljaidat.<br />Kövesd fejlődésedet, kapj személyre szabott edzés-terveket és társulj közösségünkhöz!</p>
           <div className="cta-buttons">
-            <button className="cta-button" onClick={() => navigateTo('regisztracio')}>INGYENES REGISZTRÁCIÓ</button>
+            <button className="cta-button" onClick={() => navigateTo('registration')}>INGYENES REGISZTRÁCIÓ</button>
             <button className="cta-button secondary" onClick={handleShowDemoModal}>DEMÓ MEGTEKINTÉSE</button>
           </div>
         </div>
@@ -345,14 +346,14 @@ function App() {
     </>
   );
 
-  const renderRegisztracioPage = () => (
-    <Regisztracio
+  const renderRegistrationPage = () => (
+    <Registration
       navigateTo={navigateTo}
       registrationDraft={registrationDraft}
       setRegistrationDraft={setRegistrationDraft}
     />
   );
-  const renderBejelentkezesPage = () => <Bejelentkezes navigateTo={navigateTo} setIsLoggedIn={setIsLoggedIn} />;
+  const renderLoginPage = () => <Login navigateTo={navigateTo} setIsLoggedIn={setIsLoggedIn} />;
   const renderDashboardPage = () => (
     <Dashboard
       navigateTo={navigateTo}
@@ -380,8 +381,8 @@ function App() {
               </>
             ) : (
               <>
-                <li><a href="#" onClick={() => navigateTo('regisztracio')}>REGISZTRÁCIÓ</a></li>
-                <li><a href="#" onClick={() => navigateTo('bejelentkezes')}>BEJELENTKEZÉS</a></li>
+                <li><a href="#" onClick={() => navigateTo('registration')}>REGISZTRÁCIÓ</a></li>
+                <li><a href="#" onClick={() => navigateTo('login')}>BEJELENTKEZÉS</a></li>
                 <li><a href="#" onClick={(e) => { e.preventDefault(); navigateToHomeSection('services'); }}>SZOLGÁLTATÁSAINK</a></li>
               </>
             )}
@@ -405,8 +406,8 @@ function App() {
       )}
 
       {currentPage === 'home' ? renderHomePage() 
-        : currentPage === 'regisztracio' ? renderRegisztracioPage() 
-        : currentPage === 'bejelentkezes' ? renderBejelentkezesPage()
+        : currentPage === 'registration' ? renderRegistrationPage() 
+        : currentPage === 'login' ? renderLoginPage()
         : currentPage === 'dashboard' ? renderDashboardPage()
         : currentPage === 'questionnaire' ? renderQuestionnairePage()
         : currentPage === 'terms' ? renderTermsPage()
