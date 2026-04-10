@@ -429,4 +429,4 @@ A rendszer ideiglenes jelszót küld emailben, majd a felhasználó ezt a Profil
 
 ## 10. Megjegyzés
 
-Ez a projekt a szoftverfejlesztő és tesztelő képzés záróvizsgájának részeként készült.
+Ez a projekt a szoftverfejlesztő és tesztelő képzés záróvizsgájának részeként készült..
