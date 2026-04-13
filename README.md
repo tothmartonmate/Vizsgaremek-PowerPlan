@@ -1,318 +1,175 @@
-# PowerPlan
+﻿# PowerPlan – Vizsgaremek
 
-PowerPlan egy edzéstervező és életmód-követő webalkalmazás React frontenddel, Express backenddel és MySQL adatbázissal.
+Szoftverfejlesztő és -tesztelő záróvizsga projekt
+Résztvevők: Tóth Márton Máté és Pajor Alex
 
-Ez a leírás úgy készült, hogy teljesen kezdőként is végig lehessen menni rajta, és biztosan el lehessen indítani a projektet.
+PowerPlan egy összetett, modern Full-Stack webalkalmazás, amely a személyre szabott edzéstervezést, táplálkozási tanácsadást és napi aktivitáskövetést egyetlen letisztult felületre hozza. A célunk az volt, hogy a felhasználók egyszerre kapjanak átlátható rutintervezést, egészséges étrendi támogatást és motivációt a fejlődéshez.
 
-## Tartalomjegyzék
+📑 Tartalomjegyzék
 
-1. Mi fog elindulni
-2. Előfeltételek
-3. Gyors indítás Windowsban (dupla kattintással)
-4. Indítás terminálból (PowerShell)
-5. Első indítás utáni ellenőrzés
-6. Leállítás
-7. Kézi futtatás Docker nélkül
-8. Gyakori hibák és gyors megoldások
-9. Hasznos URL-ek
-
----
-
-## 1. Mi fog elindulni
-
-A projekt indításakor 4 szolgáltatás fut:
-
-- `db`: MySQL 8 adatbázis
-- `phpmyadmin`: webes adatbázis-kezelő felület
-- `backend`: Express API
-- `frontend`: React + Vite fejlesztői szerver
-
-Alap portok:
-
-- Frontend: `http://localhost:5173`
-- Backend: `http://localhost:5001`
-- Backend health: `http://localhost:5001/api/health`
-- phpMyAdmin: `http://localhost:8081`
-- MySQL host port: `3308`
+1. A projekt célkitűzése
+2. Fő funkciók és modulok
+3. Technológiai stack
+4. Csapatmunka és feladatkörök
+5. Adatbázis architektúra
+6. Szoftvertesztelés (QA)
+7. Fejlesztési eszközök
+8. Környezet és futtatás
 
 ---
 
-## 2. Előfeltételek
+## 1. A projekt célkitűzése
 
-### Kötelező (Dockeres indításhoz)
+A PowerPlan célja egy olyan digitális edzés- és életmódplatform létrehozása volt, amely a felhasználók valós igényeihez igazodik. A meglévő fitneszalkalmazásokkal ellentétben mi arra törekedtünk, hogy ne csak adatokat jelenítsünk meg, hanem egyszerre segítsük a tervezést, a motivációt és a személyes követést.
 
-- Docker Desktop telepítve
-- Docker Desktop fut
+A projekt célja:
 
-### Kötelező (tesztfuttatáshoz)
-
-- Node.js telepítve (npm és npx elérhető)
-- Google Chrome telepítve
-
-### Gyors ellenőrzés PowerShellből
-
-Nyiss egy PowerShellt a projekt gyökérmappájában, és futtasd:
-
-```powershell
-docker --version
-docker compose version
-node -v
-npm -v
-npx -v
-```
-
-Ha bármelyik parancs hibát ad, előbb azt kell javítani.
+- egy modern SPA alapú felület kialakítása,
+- az edzéstervezés és a táplálkozás összehangolása,
+- valós idejű, személyre szabott ajánlások biztosítása,
+- a hazai edzőtermek és intézmények könnyű elérése térképpel és információs blokkokkal.
 
 ---
 
-## 3. Gyors indítás Windowsban (dupla kattintással)
+## 2. Fő funkciók és modulok
 
-Ez a legegyszerűbb módszer.
+A PowerPlan fő fókusza a felhasználói élményre és a moduláris felépítésre épül.
 
-A projekt gyökerében 3 batch fájl van:
+- Személyre szabott edzéstervezés: a kérdőív eredménye alapján egyéni erőnléti és kondíciós ajánlások jelennek meg.
+- Táplálkozási támogatás: napi makrotápanyag- és kalóriaajánlások, valamint személyre szabott étrendi javaslatok.
+- Dashboard és előrehaladáskövetés: heti edzések, testsúly-, BMI- és trendadatok megjelenítése.
+- Edzésmód és gyakorlatlista: előre definiált edzéstervek, gyakorlatszűrés, ismétlésszámok és pihenőidők.
+- Fitnesz térkép: Magyarországi edzőtermek és szolgáltatások vizuális megjelenítése a térképen.
+- Üzenetküldés és értesítések: belső üzenetfelület a felhasználók és adminisztrátorok közötti kommunikációhoz.
+- Adminisztráció: jogosultságkezelés, tartalomkezelés és moderációs felület.
+- AI ajánlás: a felhasználói válaszok alapján célzott javaslatokat kínál a kezdőoldalon.
 
-- `PowerPlan-Start.bat`: teljes rendszer indítása
-- `PowerPlan-Tests.bat`: build + backend tesztek + frontend Selenium tesztek
-- `PowerPlan-Stop.bat`: teljes rendszer leállítása
+---
 
-### Pontos lépések
+## 3. Technológiai stack
+
+A rendszer felépítése több rétegben és a korszerű fejlesztési eszközökkel történt.
+
+Frontend:
+
+- React.js és Vite
+- CSS Grid / Flexbox és egyedi stílusok
+- kliensoldali útválasztás és állapotkezelés
+
+Backend:
+
+- Node.js és Express.js
+- JWT és Bcrypt az autentikációhoz
+- REST API réteg és middleware-ek
+
+Adatbázis és infrastruktúra:
+
+- MySQL relációs adatbázis
+- Docker és Docker Compose
+- phpMyAdmin adminisztrációs felület
+
+---
+
+## 4. Csapatmunka és feladatkörök
+
+A fejlesztés során együtt dolgoztunk, de mindketten vállaltunk külön felelősségi területeket, hogy minden modul átgondolt és stabil legyen.
+
+### Tóth Márton Máté
+
+- Backend architektúra és API tervezés
+- felhasználói autentikáció JWT/Bcrypt megoldással
+- táplálkozási ajánlórendszer és a kérdőív logikája
+- admin és jogosultságkezelés felépítése
+- adatbázis-tervezés és relációs modellezés
+
+### Pajor Alex
+
+- Frontend felület és dashboard fejlesztés
+- edzéstervek és gyakorlatok kezelése
+- progresszió követése és vizuális visszajelzés
+- üzenetküldés és admin dashboard komponensek
+- tesztelés és Docker-alapú indítási folyamatok
+
+---
+
+## 5. Adatbázis architektúra
+
+A rendszer adatmodellje normalizált és moduláris, hogy a felhasználói adatok, edzésprogramok és táplálkozási javaslatok jól szervezettek maradjanak.
+
+A kulcsfontosságú logikai blokkok:
+
+- Felhasználók és jogosultságok: regisztráció, jelszóhash, szerepkörök.
+- Kérdőív és személyes beállítások: felhasználói profil, célok és preferenciák.
+- Edzésprogramok és gyakorlatok: napi/heti bontás, ismétlésszámok, nehézségi szintek.
+- Táplálkozás és makrótápanyagok: egyéni ajánlások és napi értékek.
+- Interakciók és üzenetek: belső kommunikáció, moderáció és visszajelzés.
+- Térkép és helyszínek: edzőtermek és kapcsolódó szolgáltatások lokalizált adatai.
+
+A modell 3NF szerint készült, több kapcsolótáblát és logikai szeparációt használva a skálázhatóság érdekében.
+
+---
+
+## 6. Szoftvertesztelés (QA)
+
+A stabil működés és a hibamentes felhasználói élmény érdekében több szintű minőségbiztosítást alkalmaztunk.
+
+- Manuális ellenőrzés: API-végpontok és jogosultsági rétegek tesztelése Postman vagy hasonló eszköz segítségével.
+- Backend egységtesztek: kritikus logikai komponensek automatikus ellenőrzése Jest keretrendszerrel.
+- Frontend end-to-end tesztek: automatizált Selenium WebDriver tesztek a browser alapú funkciók felfuttatásához.
+
+Ez azt biztosítja, hogy az alkalmazás mind a funkcionális, mind a felhasználói élmény szempontjából megfeleljen a vizsgakövetelményeknek.
+
+---
+
+## 7. Fejlesztési eszközök
+
+A projekt fejlesztése alatt használtuk a következő eszközöket:
+
+- Visual Studio Code
+- Git és GitHub
+- Docker Desktop
+- phpMyAdmin
+- Node.js és npm
+- Postman vagy hasonló API tesztelő alkalmazás
+
+---
+
+## 8. Környezet és futtatás
+
+A PowerPlan futtatása Docker Compose segítségével történik a legegyszerűbben. A projekt több konténerből áll, hogy a frontend, backend és adatbázis külön-külön kezelhető legyen.
+
+### Gyors indítás Windowsban
 
 1. Indítsd el a Docker Desktopot.
-2. Várd meg, amíg teljesen feláll (ne csak megnyíljon, hanem futó állapotban legyen).
-3. Nyisd meg a projekt mappáját a Fájlkezelőben.
-4. Kattints duplán a `PowerPlan-Start.bat` fájlra.
-5. Várd meg, amíg kiírja, hogy minden szolgáltatás elindult.
-6. Automatikusan megnyílnak az oldalak böngészőben.
+2. Nyisd meg a projekt gyökérkönyvtárát.
+3. Kattints duplán a `PowerPlan-Start.bat` fájlra.
+4. Várd meg, hogy a rendszer felálljon.
 
-### Amit a start script csinál a háttérben
+### Terminálból indítás
 
-- ellenőrzi, hogy elérhető-e a Docker
-- elindítja a compose szolgáltatásokat
-- megvárja, amíg a backend health endpoint válaszol
-- megnyitja a Frontend, Health és phpMyAdmin oldalakat
-
----
-
-## 4. Indítás terminálból (PowerShell)
-
-Ha inkább parancssorból indítanád, a projekt gyökérmappájában futtasd:
-
-### 4.1 Előtérben futtatás (logok folyamatosan látszanak)
-
-```powershell
-docker compose up --build
-```
-
-### 4.2 Háttérben futtatás (ajánlott)
+A projekt gyökerében futtasd:
 
 ```powershell
 docker compose up --build -d
 ```
 
-### 4.3 Konténerállapot ellenőrzése
+### Ellenőrzés
 
-```powershell
-docker compose ps
-```
+- Frontend: `http://localhost:5173`
+- Backend health: `http://localhost:5001/api/health`
+- phpMyAdmin: `http://localhost:8081`
 
-Elvárt: minden szolgáltatás `Up` állapotban legyen.
-
----
-
-## 5. Első indítás utáni ellenőrzés
-
-Ezt a részt mindig érdemes végigcsinálni, hogy biztosan jó legyen a környezet.
-
-### 5.1 Backend health ellenőrzés
-
-```powershell
-Invoke-WebRequest -UseBasicParsing http://localhost:5001/api/health | Select-Object StatusCode,Content
-```
-
-Elvárt:
-
-- StatusCode: `200`
-- Content: `{"ok":true,"service":"powerplan-backend"}`
-
-### 5.2 Frontend ellenőrzés
-
-Nyisd meg böngészőben:
-
-- `http://localhost:5173`
-
-### 5.3 phpMyAdmin ellenőrzés
-
-Nyisd meg böngészőben:
-
-- `http://localhost:8081`
-
-Belépési adatok:
-
-- Szerver: `db` (vagy `localhost` / `127.0.0.1` a helyzettől függően)
-- Felhasználónév: `root`
-- Jelszó: `root`
-
----
-
-## 6. Leállítás
-
-### Dupla kattintással
-
-- futtasd a `PowerPlan-Stop.bat` fájlt
-
-### Terminálból
+### Leállítás
 
 ```powershell
 docker compose down
 ```
 
-Ha teljesen törölni akarod a volume-okat is (adatvesztéssel jár):
+### Kézi futtatás
 
-```powershell
-docker compose down -v
-```
+Ha Docker nélkül szeretnéd futtatni:
 
-Fontos: a `-v` törli az adatbázis tartós adatait.
+- Backend: `cd Backend && npm install && npm run dev`
+- Frontend: `cd Frontend && npm install && npm run dev`
 
----
-
-## 7. Kézi futtatás Docker nélkül
-
-Ez haladóbb útvonal. Akkor használd, ha tudatosan külön akarod kezelni a szolgáltatásokat.
-
-## 8.1 Adatbázis
-
-Szükség van egy MySQL szerverre `powerplan` adatbázissal.
-
-Egyszerű opció: csak DB + phpMyAdmin indítása Dockerrel:
-
-```powershell
-docker compose up db phpmyadmin -d
-```
-
-Host oldali elérés:
-
-- host: `127.0.0.1`
-- port: `3308`
-- user: `root`
-- password: `root`
-- database: `powerplan`
-
-## 8.2 Backend kézi indítása
-
-```powershell
-cd Backend
-npm install
-npm run dev
-```
-
-vagy
-
-```powershell
-cd Backend
-npm install
-npm start
-```
-
-### Fontos `.env` megjegyzés
-
-A Dockeres futtatásnál a DB host jellemzően `powerplan_db`.
-
-Ha host gépről futtatod a backendet, általában ez működik:
-
-```env
-DB_HOST=127.0.0.1
-DB_PORT=3308
-DB_USER=root
-DB_PASSWORD=root
-DB_NAME=powerplan
-PORT=5000
-```
-
-## 8.3 Frontend kézi indítása
-
-```powershell
-cd Frontend
-npm install
-npm run dev
-```
-
-Build:
-
-```powershell
-cd Frontend
-npm run build
-```
-
-Preview:
-
-```powershell
-cd Frontend
-npm run preview
-```
-
----
-
-## 8. Gyakori hibák és gyors megoldások
-
-### Hiba: a start script szerint nem érhető el a Docker
-
-Teendő:
-
-1. Indítsd el a Docker Desktopot.
-2. Várj 30-60 másodpercet.
-3. Ellenőrizd PowerShellből: `docker info`
-4. Futtasd újra a scriptet.
-
-### Hiba: frontend nem jön be, de a backend health jó
-
-Teendő:
-
-1. Ellenőrizd a konténereket: `docker compose ps`
-2. Nézd meg a frontend logot: `docker compose logs frontend --tail=100`
-3. Próbáld meg újraindítani: `docker compose restart frontend`
-
-### Hiba: `Cannot GET /` a backend címen
-
-Ez normális lehet. A backend API főleg az `/api/...` útvonalakon ad választ.
-
-Ellenőrzésre ezt használd:
-
-- `http://localhost:5001/api/health`
-
-### Hiba: MySQL hostról nem érhető el `powerplan_db` néven
-
-Ez normális. A `powerplan_db` név Docker hálózaton belüli hostnév.
-
-Host gépről használd ezt:
-
-- host: `127.0.0.1`
-- port: `3308`
-
-### Hiba: Selenium tesztek megbuknak induláskor
-
-Teendő:
-
-1. Ellenőrizd, hogy fut a Docker Desktop.
-2. Ellenőrizd, hogy telepítve van a Chrome.
-3. Futtasd külön a frontend buildet: `cd Frontend && npm run build`.
-4. Utána indítsd újra a teszteket.
-
-### Hiba: új regisztráció után hiányos dashboard adatok
-
-Ellenőrizd:
-
-- él-e a backend (`/api/health`)
-- van-e aktuális user adat localStorage-ben
-- létrejött-e kérdőív adat az adott felhasználóhoz
-
----
-
-## 9. Hasznos URL-ek
-
-- Frontend: `http://localhost:5173`
-- Backend root: `http://localhost:5001/`
-- Backend health: `http://localhost:5001/api/health`
-- phpMyAdmin: `http://localhost:8081`
-
-
+Ez a README a projekt céljait, fő funkcióit, technológiai felépítését és a futtatási környezetet foglalja össze.
